@@ -1,0 +1,10 @@
+node_modules/
+npm-debug.log*
+.env
+.env.local
+.DS_Store
+dist/
+*.log
+
+# Original Notion export (kept locally, not published)
+NAGA ARENA *.md

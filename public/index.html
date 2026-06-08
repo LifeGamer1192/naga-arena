@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>NAGA ARENA</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- TITLE -->
+    <section id="screen-title" class="screen active">
+      <h1 class="logo">NAGA<span>ARENA</span></h1>
+      <p class="tagline">Real-time Multiplayer Snake — Phase 1 MVP</p>
+      <button id="btn-enter" class="btn primary">ENTER ARENA</button>
+      <p class="conn" id="conn-status">接続中…</p>
+    </section>
+
+    <!-- LOBBY -->
+    <section id="screen-lobby" class="screen">
+      <h2>LOBBY</h2>
+      <p class="hint">Battle Royale — 最後の1匹まで生き残れ。フードを食べて伸ばそう。</p>
+      <ul id="player-list" class="player-list"></ul>
+      <button id="btn-ready" class="btn primary">READY</button>
+      <p class="hint small">全員がREADYになると 3...2...1 でゲーム開始。1人でも開始できます（練習）。</p>
+    </section>
+
+    <!-- COUNTDOWN / PLAYING share the canvas -->
+    <section id="screen-game" class="screen">
+      <canvas id="board"></canvas>
+      <div id="countdown" class="countdown hidden"></div>
+      <div id="hud" class="hud">
+        <div id="scoreboard" class="scoreboard"></div>
+        <div id="killlog" class="killlog"></div>
+      </div>
+      <div id="touch-controls" class="touch-controls hidden">
+        <button class="dpad up" data-dir="UP">▲</button>
+        <button class="dpad left" data-dir="LEFT">◀</button>
+        <button class="dpad right" data-dir="RIGHT">▶</button>
+        <button class="dpad down" data-dir="DOWN">▼</button>
+      </div>
+    </section>
+
+    <!-- RESULT -->
+    <section id="screen-result" class="screen">
+      <h2>RESULT</h2>
+      <ol id="result-list" class="result-list"></ol>
+      <p class="hint" id="result-countdown"></p>
+    </section>
+  </div>
+
+  <script src="client.js"></script>
+</body>
+</html>
