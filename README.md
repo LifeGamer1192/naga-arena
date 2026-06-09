@@ -7,26 +7,31 @@ A browser-based, real-time multiplayer snake game with an authoritative server
 > Share the room link with friends and open it on multiple devices to play together.
 > (Machines stop when idle, so the first request may take a few seconds to cold-start.)
 
-> **Phase 2** — current state of this repository.
-> URL-shared rooms / all 7 items / 4 maps / 3 game modes / mobile support.
+> **Phase 3** — current state of this repository.
+> URL-shared rooms / all 7 items / 4 maps / 4 game modes / Ranked rating +
+> leaderboard / spectating / mobile support.
 
-## Features (Phase 2)
+## Features
 
 - **Authoritative server**: every decision (movement, collisions, scoring) runs
   server-side, which keeps the game cheat-resistant. Clients only send input.
 - **URL-shared rooms**: each room has a short code in the URL. Open the same link
   to join the same room; the host picks the mode and map.
-- **3 game modes**:
+- **4 game modes**:
   - **Battle Royale** — last snake standing wins.
   - **Score Attack** — 3 minutes, respawn on death, highest score wins.
   - **Team Battle** — 2 teams, friendly pass-through, highest team total wins.
+  - **Ranked** — last-survivor play that updates your persistent rating.
+- **Ranked rating & leaderboard**: a persistent rating per player (no account
+  needed — a local id), tier-scaled win/loss deltas, and a global leaderboard
+  served at `/api/leaderboard`.
+- **Spectating**: join a room mid-match (or after being eliminated) and watch
+  the live game until the next round.
 - **4 maps**: VOID (open), LABYRINTH (maze walls), TUNNEL (wrap-around edges),
   ARENA (central coliseum with periodic obstacles).
 - **7 items**: Food, Super Food, Speed Up, Shrink, Shield, Freeze Bomb, Ghost.
 - **Real-time sync** over WebSocket, broadcasting state at 20 ticks/sec.
 - **Desktop & mobile**: arrow keys / WASD, or swipe / on-screen D-pad.
-
-> RANKED mode and the rating system are intentionally deferred to Phase 3.
 
 ## Requirements
 
@@ -76,6 +81,23 @@ kill reward  = kills x 50
 rank bonus   = 1st x2.0 / 2nd x1.5 / 3rd x1.2  // Battle Royale
 ```
 
+## Ranked rating
+
+In Ranked mode, finishing in the top half of the lobby is a win. The rating
+change scales by your current tier (higher tiers gain less and lose more).
+Everyone starts at 1000 (SILVER).
+
+| Tier | Rating | Win / Loss |
+| --- | --- | --- |
+| BRONZE | 0–999 | +30 / -20 |
+| SILVER | 1000–1499 | +25 / -22 |
+| GOLD | 1500–1999 | +20 / -25 |
+| DIAMOND | 2000–2499 | +15 / -28 |
+| SERPENT KING | 2500+ | +12 / -30 |
+
+The leaderboard (players with at least one ranked match) is available at
+`GET /api/leaderboard` and from the title screen.
+
 ## Tech stack
 
 | Layer | Tech |
@@ -104,11 +126,12 @@ naga_arena/
 ├── package.json
 ├── Dockerfile, fly.toml, .dockerignore   # deployment
 ├── server/
-│   ├── server.js   # Express + ws, RoomManager wiring, broadcast loop
+│   ├── server.js   # Express + ws, RoomManager wiring, broadcast loop, /api
 │   ├── game.js     # GameRoom + RoomManager: movement, items, modes, scoring
-│   └── maps.js     # 4 map definitions
+│   ├── maps.js     # 4 map definitions
+│   └── ratings.js  # persistent rating store, tiers, leaderboard
 ├── public/
-│   ├── index.html  # screens: TITLE / LOBBY / GAME / RESULT
+│   ├── index.html  # screens: TITLE / LEADERBOARD / LOBBY / GAME / RESULT
 │   ├── style.css
 │   └── client.js   # WebSocket client, Canvas renderer, input
 └── test/
@@ -129,13 +152,15 @@ MODE=SCORE_ATTACK MAP=ARENA node test/smoke.mjs
 ## Deploy (Fly.io)
 
 ```bash
-fly apps create naga-arena      # first time only
+fly apps create naga-arena                       # first time only
+fly volumes create naga_data --region nrt --size 1  # ratings persistence
 fly deploy --ha=false --remote-only
 ```
 
 `fly.toml` uses a **single machine** on purpose: a game room lives in server
 memory, so all players must connect to the same instance. Multi-node sharing
-(via Redis) is planned for a later phase.
+(via Redis) is planned for a later phase. Ratings are written to a mounted
+volume (`/data`) via the `RATINGS_FILE` env var, so they survive redeploys.
 
 ## Roadmap
 
@@ -143,7 +168,7 @@ memory, so all players must connect to the same instance. Multi-node sharing
 | --- | --- | --- |
 | Phase 1 | MVP: WebSocket, Battle Royale, food only | ✅ done |
 | Phase 2 | URL-shared rooms, all items, 4 maps, modes, mobile | ✅ done |
-| Phase 3 | Ranked mode, rating, leaderboard, spectating | planned |
+| Phase 3 | Ranked mode, rating, leaderboard, spectating | ✅ done |
 | Phase 4 | Skins, SFX, tournament mode, production deploy | planned |
 
 ## License

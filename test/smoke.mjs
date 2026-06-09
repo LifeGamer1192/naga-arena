@@ -20,7 +20,9 @@ function makeClient(label, strategy) {
   const ws = new WebSocket(URL);
   const c = { ws, label, id: null, state: null, dir: 'RIGHT', maxLen: 0, ateScore: 0, sawPlaying: false, result: null };
   ws.on('open', () => {
-    ws.send(JSON.stringify({ type: 'join', room: ROOM, mode: MODE, map: MAP }));
+    // Unique persistent id per client so Ranked rating changes can apply.
+    const pid = `pid-${label}-${ROOM}`;
+    ws.send(JSON.stringify({ type: 'join', room: ROOM, mode: MODE, map: MAP, pid, name: `BOT-${label}` }));
   });
   ws.on('message', (raw) => {
     const msg = JSON.parse(raw.toString());
@@ -85,7 +87,8 @@ function suicideAfter(ms) {
 
 // Timed modes (Score Attack / Team Battle) run for 3 minutes, so we don't
 // wait for a round to end over the network; we verify play instead.
-const TIMED = MODE !== 'BATTLE_ROYALE';
+// Battle Royale and Ranked are elimination modes that finish quickly.
+const TIMED = MODE === 'SCORE_ATTACK' || MODE === 'TEAM_BATTLE';
 
 const a = makeClient('A', greedy);
 const b = makeClient('B', TIMED ? greedy : suicideAfter(4000));
@@ -117,7 +120,12 @@ function finish() {
       check('results have distinct ranks 1 and 2', ranks[0] === 1 && ranks[1] === 2);
       const winner = res.find((r) => r.rank === 1);
       check('winner has a final score > 0', winner && winner.score > 0);
-      console.log('   results:', JSON.stringify(res.map((r) => ({ name: r.name, rank: r.rank, score: r.score, food: r.foodCount, kills: r.kills }))));
+      if (MODE === 'RANKED') {
+        check('ranked result carries a rating change', res.every((r) => r.rating && typeof r.rating.delta === 'number'));
+        console.log('   ranked:', JSON.stringify(res.map((r) => ({ name: r.name, rank: r.rank, delta: r.rating && r.rating.delta, after: r.rating && r.rating.after }))));
+      } else {
+        console.log('   results:', JSON.stringify(res.map((r) => ({ name: r.name, rank: r.rank, score: r.score, food: r.foodCount, kills: r.kills }))));
+      }
     }
   } else {
     console.log(`   played ${MODE}; max score so far: ${Math.max(a.ateScore, b.ateScore)}`);

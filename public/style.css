@@ -62,6 +62,29 @@ html, body {
 .btn.small { font-size: 13px; padding: 8px 14px; letter-spacing: 1px; }
 .btn.primary.ready-on { background: var(--accent); color: #05060a; }
 
+.name-input {
+  font-size: 16px; text-align: center; letter-spacing: 1px;
+  padding: 12px 18px; border-radius: 8px; border: 1px solid #2a3a5c;
+  background: var(--panel); color: var(--text); width: 240px; max-width: 80vw;
+}
+.name-input:focus { outline: none; border-color: var(--accent2); }
+.my-rating { color: var(--accent2); letter-spacing: 1px; font-size: 14px; }
+.my-rating b { color: var(--text); font-size: 16px; }
+
+/* Leaderboard */
+.lb-list { list-style: none; display: flex; flex-direction: column; gap: 6px; min-width: 340px; max-width: 92vw; }
+.lb-list li { display: flex; align-items: center; gap: 12px; background: var(--panel); padding: 10px 16px; border-radius: 8px; border: 1px solid #1c2840; }
+.lb-list .rank { font-weight: 900; width: 32px; }
+.lb-list .tier { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
+.lb-list .stats { margin-left: auto; color: var(--muted); font-size: 12px; }
+.lb-list .final { font-weight: 800; color: var(--accent2); width: 56px; text-align: right; }
+
+.spectating {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  background: rgba(8,12,22,0.8); border: 1px solid var(--accent2); color: var(--accent2);
+  padding: 8px 20px; border-radius: 20px; font-weight: 800; letter-spacing: 2px; font-size: 14px;
+}
+
 .conn { color: var(--muted); font-size: 13px; }
 .hint { color: var(--muted); max-width: 520px; }
 .hint.small { font-size: 12px; }
@@ -147,3 +170,7 @@ html, body {
 .result-list .rank { font-weight: 900; font-size: 20px; width: 36px; }
 .result-list .stats { margin-left: auto; color: var(--muted); font-size: 13px; }
 .result-list .final { font-weight: 800; font-size: 18px; color: var(--accent); }
+.result-list .rating { font-size: 13px; font-weight: 700; }
+.result-list .rating.up { color: var(--accent); }
+.result-list .rating.down { color: var(--accent2); }
+.result-list .rating small { color: var(--muted); font-weight: 400; }

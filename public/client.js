@@ -9,6 +9,7 @@
   const screens = {
     title: $('screen-title'), lobby: $('screen-lobby'),
     game: $('screen-game'), result: $('screen-result'),
+    leaderboard: $('screen-leaderboard'),
   };
   const connStatus = $('conn-status');
   const canvas = $('board');
@@ -21,6 +22,7 @@
   const teamResultEl = $('team-result');
   const resultCountdown = $('result-countdown');
   const touchControls = $('touch-controls');
+  const spectatingEl = $('spectating');
   const roomCodeEl = $('room-code');
   const playerList = $('player-list');
   const hostNote = $('host-note');
@@ -29,6 +31,7 @@
     { id: 'BATTLE_ROYALE', label: 'BATTLE ROYALE' },
     { id: 'SCORE_ATTACK', label: 'SCORE ATTACK' },
     { id: 'TEAM_BATTLE', label: 'TEAM BATTLE' },
+    { id: 'RANKED', label: 'RANKED' },
   ];
   const MAPS = [
     { id: 'VOID', label: 'VOID' }, { id: 'LABYRINTH', label: 'LABYRINTH' },
@@ -54,6 +57,21 @@
   let lastState = null, killFeed = [], cell = 16, prevPhase = null;
   const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
+  // Persistent identity for ratings (no account system).
+  function loadPid() {
+    let pid = localStorage.getItem('naga_pid');
+    if (!pid) {
+      pid = (crypto.randomUUID ? crypto.randomUUID() : 'p' + Math.random().toString(36).slice(2) + Date.now());
+      localStorage.setItem('naga_pid', pid);
+    }
+    return pid;
+  }
+  const myPid = loadPid();
+  let myRating = null;
+  const nameInput = $('name-input');
+  nameInput.value = localStorage.getItem('naga_name') || '';
+  function myName() { return (nameInput.value || '').trim(); }
+
   function showScreen(name) {
     for (const [k, el] of Object.entries(screens)) el.classList.toggle('active', k === name);
   }
@@ -78,6 +96,7 @@
     switch (msg.type) {
       case 'welcome':
         myId = msg.id; isHost = !!msg.isHost;
+        myRating = msg.you || null;
         setRoomCode(msg.room);
         showScreen('lobby');
         break;
@@ -96,8 +115,33 @@
 
   // ---- Enter / lobby controls ----
   $('btn-enter').addEventListener('click', () => {
-    send({ type: 'join', room: roomFromUrl(), mode: 'BATTLE_ROYALE', map: 'VOID' });
+    localStorage.setItem('naga_name', myName());
+    send({ type: 'join', room: roomFromUrl(), mode: 'BATTLE_ROYALE', map: 'VOID', pid: myPid, name: myName() });
   });
+
+  // ---- Leaderboard ----
+  async function showLeaderboard() {
+    showScreen('leaderboard');
+    const list = $('lb-list'), empty = $('lb-empty');
+    list.innerHTML = ''; empty.textContent = 'Loading...';
+    try {
+      const res = await fetch('/api/leaderboard');
+      const data = await res.json();
+      const rows = data.leaderboard || [];
+      if (!rows.length) { empty.textContent = 'No ranked matches played yet.'; return; }
+      empty.textContent = '';
+      list.innerHTML = rows.map((r) => `
+        <li>
+          <span class="rank">${r.rank}</span>
+          <span class="pname">${esc(r.name)}</span>
+          <span class="tier">${esc(r.tier)}</span>
+          <span class="stats">${r.wins}W / ${r.losses}L</span>
+          <span class="final">${r.rating}</span>
+        </li>`).join('');
+    } catch { empty.textContent = 'Could not load leaderboard.'; }
+  }
+  $('btn-leaderboard').addEventListener('click', showLeaderboard);
+  $('btn-lb-back').addEventListener('click', () => showScreen('title'));
 
   $('btn-copy').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(location.href); $('btn-copy').textContent = 'Copied!'; }
@@ -178,6 +222,12 @@
   }
 
   function renderLobby(state) {
+    const myr = $('my-rating');
+    if (myRating && myRating.rating != null) {
+      myr.classList.remove('hidden');
+      myr.innerHTML = `${esc(myRating.tier)} &middot; <b>${myRating.rating}</b>`;
+    } else { myr.classList.add('hidden'); }
+
     // Highlight selected mode/map; enable only for host.
     document.querySelectorAll('#mode-options .opt').forEach((b) => {
       b.classList.toggle('selected', b.dataset.mode === state.mode);
@@ -216,10 +266,17 @@
       const li = document.createElement('li');
       li.className = `rank-${r.rank}`;
       const me = r.id === myId ? ' (YOU)' : '';
+      let ratingHtml = '';
+      if (r.rating) {
+        const d = r.rating.delta;
+        const cls = d >= 0 ? 'up' : 'down';
+        ratingHtml = `<span class="rating ${cls}">${d >= 0 ? '+' : ''}${d} &rarr; ${r.rating.after} <small>${esc(r.rating.tier)}</small></span>`;
+      }
       li.innerHTML = `<span class="rank">${r.rank}</span>
         <span class="swatch" style="background:${r.color}"></span>
         <span class="pname">${esc(r.name)}${me}</span>
         <span class="stats">food ${r.foodCount} / kills ${r.kills}</span>
+        ${ratingHtml}
         <span class="final">${r.score}</span>`;
       resultList.appendChild(li);
     }
@@ -275,6 +332,13 @@
     // Countdown overlay.
     if (state.phase === 'COUNTDOWN' && state.countdown > 0) { countdownEl.classList.remove('hidden'); countdownEl.textContent = state.countdown; }
     else countdownEl.classList.add('hidden');
+
+    // Spectating overlay: shown while watching (dead in elimination modes,
+    // or joined mid-round) during PLAYING.
+    const mine = state.snakes.find((s) => s.id === myId);
+    const spectating = state.phase === 'PLAYING' && mine && (mine.spectating || !mine.alive);
+    spectatingEl.classList.toggle('hidden', !spectating);
+    if (spectating) spectatingEl.textContent = mine.spectating ? 'SPECTATING (next round)' : 'SPECTATING';
 
     renderHud(state);
   }

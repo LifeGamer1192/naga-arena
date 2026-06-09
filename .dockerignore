@@ -11,3 +11,5 @@ NAGA ARENA *.md
 .env.local
 .DS_Store
 .fly
+.claude
+data

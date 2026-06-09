@@ -38,7 +38,13 @@ export const MODES = {
   BATTLE_ROYALE: { id: 'BATTLE_ROYALE', respawn: false, timed: false, teams: false },
   SCORE_ATTACK: { id: 'SCORE_ATTACK', respawn: true, timed: true, teams: false },
   TEAM_BATTLE: { id: 'TEAM_BATTLE', respawn: true, timed: true, teams: true },
+  RANKED: { id: 'RANKED', respawn: false, timed: false, teams: false, ranked: true },
 };
+
+export function sanitizeName(name) {
+  const s = String(name || '').replace(/[\x00-\x1f\x7f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
+  return s || null;
+}
 export const MODE_IDS = Object.keys(MODES);
 
 // Item catalogue. `prob` is the chance to be chosen on a special-spawn roll.
@@ -71,6 +77,8 @@ export class GameRoom {
     this.results = null;
     this.hostId = null;
     this.itemSeq = 1;
+    this.ratings = null;        // injected RatingStore (Phase 3)
+    this.roundParticipants = []; // snakes that were spawned this round
   }
 
   setMode(modeId) {
@@ -82,13 +90,17 @@ export class GameRoom {
 
   isEmpty() { return this.players.size === 0; }
 
-  addPlayer(id) {
+  addPlayer(id, opts = {}) {
     const idx = this.players.size % COLORS.length;
+    const name = sanitizeName(opts.name) || `SNAKE-${String(globalPlayerNum++).padStart(2, '0')}`;
     const player = {
       id,
-      name: `SNAKE-${String(globalPlayerNum++).padStart(2, '0')}`,
+      pid: opts.pid || null,   // persistent player identity (for ratings)
+      name,
       color: COLORS[idx],
       team: null,
+      // Players who join mid-round spectate until the next lobby.
+      spectating: this.phase !== PHASE.LOBBY,
       body: [], dir: 'RIGHT', pendingDir: 'RIGHT',
       alive: false, ready: false,
       score: 0, foodCount: 0, combo: 0, kills: 0,
@@ -98,6 +110,7 @@ export class GameRoom {
     };
     this.players.set(id, player);
     if (!this.hostId) this.hostId = id; // first joiner is the host
+    if (this.ratings && player.pid) this.ratings.ensure(player.pid, name);
     return player;
   }
 
@@ -162,9 +175,14 @@ export class GameRoom {
   }
 
   spawnAll() {
-    const players = [...this.players.values()];
-    const n = players.length;
-    players.forEach((p, i) => { this.spawnSnake(p, i, n); });
+    // Spectators (mid-round joiners) sit out until the next lobby.
+    const participants = [...this.players.values()].filter((p) => !p.spectating);
+    const n = participants.length;
+    participants.forEach((p, i) => { this.spawnSnake(p, i, n); });
+    for (const p of this.players.values()) {
+      if (p.spectating) { p.alive = false; p.body = []; }
+    }
+    this.roundParticipants = participants;
     this.startPlayers = n;
     this.deathCounter = 0;
   }
@@ -316,8 +334,10 @@ export class GameRoom {
   resetToLobby() {
     this.phase = PHASE.LOBBY;
     this.items = [];
+    this.roundParticipants = [];
     for (const p of this.players.values()) {
-      p.ready = false; p.alive = false; p.body = [];
+      // Spectators rejoin as normal players once we return to the lobby.
+      p.ready = false; p.alive = false; p.body = []; p.spectating = false;
     }
   }
 
@@ -523,7 +543,9 @@ export class GameRoom {
   }
 
   endRound(events) {
-    const players = [...this.players.values()];
+    // Only players who were spawned this round are ranked (spectators excluded).
+    const players = this.roundParticipants.length
+      ? [...this.roundParticipants] : [...this.players.values()];
     let results;
     if (this.mode.teams) {
       results = this.rankTeams(players);
@@ -531,7 +553,7 @@ export class GameRoom {
       const ordered = [...players].sort((a, b) => b.score - a.score);
       results = ordered.map((p, i) => this.resultRow(p, i + 1, p.score));
     } else {
-      // Battle Royale: survivors first, then by death order; rank multiplier.
+      // Battle Royale / Ranked: survivors first, then by death order; rank multiplier.
       const survivors = players.filter((p) => p.alive).sort((a, b) => b.score - a.score);
       const dead = players.filter((p) => !p.alive).sort((a, b) => b.deathOrder - a.deathOrder);
       const ordered = [...survivors, ...dead];
@@ -544,6 +566,17 @@ export class GameRoom {
         return this.resultRow(p, rank, final);
       });
     }
+
+    // Apply rating changes for Ranked matches and annotate the result rows.
+    if (this.mode.ranked && this.ratings) {
+      const changes = this.ratings.recordRankedRound(
+        results.map((r) => ({ pid: r.pid, name: r.name, rank: r.rank })));
+      for (const r of results) {
+        const c = changes.get(r.pid);
+        if (c) r.rating = c; // { before, after, delta, won, tier }
+      }
+    }
+
     this.results = results;
     this.phase = PHASE.RESULT;
     this.phaseTimer = CONFIG.RESULT_MS;
@@ -565,7 +598,7 @@ export class GameRoom {
 
   resultRow(p, rank, score) {
     return {
-      id: p.id, name: p.name, color: p.color, team: p.team,
+      id: p.id, pid: p.pid, name: p.name, color: p.color, team: p.team,
       rank, score, kills: p.kills, foodCount: p.foodCount,
     };
   }
@@ -601,11 +634,15 @@ export class GameRoom {
       countdown: this.phase === PHASE.COUNTDOWN ? Math.ceil(this.phaseTimer / 1000) : 0,
       timeLeft,
       teamTotals,
-      snakes: [...this.players.values()].map((p) => ({
-        id: p.id, name: p.name, color: p.color, team: p.team,
-        alive: p.alive, ready: p.ready, body: p.body,
-        score: p.score, kills: p.kills, effects: this.effectsOf(p),
-      })),
+      snakes: [...this.players.values()].map((p) => {
+        const r = (this.ratings && p.pid) ? this.ratings.get(p.pid) : null;
+        return {
+          id: p.id, name: p.name, color: p.color, team: p.team,
+          alive: p.alive, ready: p.ready, spectating: p.spectating, body: p.body,
+          score: p.score, kills: p.kills, effects: this.effectsOf(p),
+          rating: r ? r.rating : null,
+        };
+      }),
       items: this.items,
       results: this.phase === PHASE.RESULT ? this.results : null,
     };
@@ -614,7 +651,7 @@ export class GameRoom {
 
 // Manages the set of active rooms keyed by short code.
 export class RoomManager {
-  constructor() { this.rooms = new Map(); }
+  constructor(ratingStore = null) { this.rooms = new Map(); this.ratings = ratingStore; }
 
   normalizeCode(code) {
     const c = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
@@ -634,7 +671,11 @@ export class RoomManager {
   getOrCreate(code, modeId, mapId) {
     const c = this.normalizeCode(code);
     let room = this.rooms.get(c);
-    if (!room) { room = new GameRoom(c, modeId, mapId); this.rooms.set(c, room); }
+    if (!room) {
+      room = new GameRoom(c, modeId, mapId);
+      room.ratings = this.ratings;
+      this.rooms.set(c, room);
+    }
     return room;
   }
 

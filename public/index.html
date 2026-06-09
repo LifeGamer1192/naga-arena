@@ -12,13 +12,24 @@
     <section id="screen-title" class="screen active">
       <h1 class="logo">NAGA<span>ARENA</span></h1>
       <p class="tagline">Real-time Multiplayer Snake</p>
+      <input id="name-input" class="name-input" maxlength="16" placeholder="Your name" />
       <button id="btn-enter" class="btn primary">ENTER ARENA</button>
+      <button id="btn-leaderboard" class="btn small">LEADERBOARD</button>
       <p class="conn" id="conn-status">Connecting...</p>
+    </section>
+
+    <!-- LEADERBOARD -->
+    <section id="screen-leaderboard" class="screen">
+      <h2>LEADERBOARD</h2>
+      <ol id="lb-list" class="lb-list"></ol>
+      <p class="hint small" id="lb-empty"></p>
+      <button id="btn-lb-back" class="btn small">BACK</button>
     </section>
 
     <!-- LOBBY -->
     <section id="screen-lobby" class="screen">
       <h2>LOBBY</h2>
+      <p id="my-rating" class="my-rating hidden"></p>
       <div class="room-bar">
         <span class="room-label">ROOM</span>
         <span id="room-code" class="room-code">-----</span>
@@ -46,6 +57,7 @@
     <section id="screen-game" class="screen">
       <canvas id="board"></canvas>
       <div id="countdown" class="countdown hidden"></div>
+      <div id="spectating" class="spectating hidden">SPECTATING</div>
       <div id="hud" class="hud">
         <div id="scoreboard" class="scoreboard"></div>
         <div class="hud-right">

@@ -1,5 +1,8 @@
-// Deterministic unit tests for the Phase 2 engine (no network).
-import { GameRoom, RoomManager, CONFIG } from '../server/game.js';
+// Deterministic unit tests for the Phase 2 + Phase 3 engine (no network).
+import { GameRoom, RoomManager, CONFIG, sanitizeName } from '../server/game.js';
+import { RatingStore, tierOf } from '../server/ratings.js';
+import os from 'os';
+import path from 'path';
 
 let failures = 0;
 const check = (name, cond) => {
@@ -76,6 +79,7 @@ const stepOnce = (room) => room.update(CONFIG.STEP_MS); // advance every snake o
   const room = playingRoom(1);
   const [a] = arr(room);
   a.body = [{ x: 5, y: 5 }, { x: 4, y: 5 }, { x: 3, y: 5 }]; a.dir = a.pendingDir = 'RIGHT';
+  room.ensureFood = () => {}; // keep the field deterministic across the multi-step advance
   room.items = [{ id: 1, type: 'SUPER_FOOD', x: 6, y: 5 }];
   const len = a.body.length;
   // Advance enough steps for the +3 growth to fully materialise.
@@ -153,12 +157,14 @@ const stepOnce = (room) => room.update(CONFIG.STEP_MS); // advance every snake o
 
 // T12: SCORE_ATTACK respawns a dead snake after the delay, keeping score.
 (() => {
-  const room = playingRoom(2, 'SCORE_ATTACK');
+  const room = playingRoom(1, 'SCORE_ATTACK'); // solo keeps the field clear
   const [a] = arr(room);
   a.score = 42;
   room.killSnake(a, null, []);
   check('T12: dead with respawn scheduled', !a.alive && a.respawnAt > 0);
-  room.update(CONFIG.RESPAWN_MS + CONFIG.STEP_MS);
+  // Advance in small real-time steps; stop the instant the respawn lands so the
+  // fresh snake never fast-forwards into a wall.
+  for (let t = 0; t <= CONFIG.RESPAWN_MS + 1000 && !a.alive; t += 50) room.update(50);
   check('T12: respawned with score kept', a.alive && a.score === 42);
 })();
 
@@ -173,6 +179,73 @@ const stepOnce = (room) => room.update(CONFIG.STEP_MS); // advance every snake o
   r1.addPlayer('x'); r1.removePlayer('x'); // now empty
   m.updateAll(16);
   check('T13: empty room cleaned up', !m.rooms.has('ABC'));
+})();
+
+// T14: rating tiers map correctly at boundaries.
+(() => {
+  check('T14: 1000 -> SILVER', tierOf(1000).name === 'SILVER');
+  check('T14: 999 -> BRONZE', tierOf(999).name === 'BRONZE');
+  check('T14: 2500 -> SERPENT KING', tierOf(2500).name === 'SERPENT KING');
+})();
+
+// T15: RatingStore applies tier-scaled win/loss to a ranked round.
+(() => {
+  const store = new RatingStore(path.join(os.tmpdir(), 'naga-test-ratings-' + 'x' + '.json'));
+  store.players.clear();
+  const changes = store.recordRankedRound([
+    { pid: 'a', name: 'A', rank: 1 },
+    { pid: 'b', name: 'B', rank: 2 },
+  ]);
+  const ca = changes.get('a'), cb = changes.get('b');
+  // Both start at 1000 (SILVER): win +25, loss -22.
+  check('T15: winner +25 from SILVER', ca && ca.won && ca.delta === 25 && ca.after === 1025);
+  check('T15: loser -22 from SILVER', cb && !cb.won && cb.delta === -22 && cb.after === 978);
+  check('T15: leaderboard sorted by rating', store.leaderboard()[0].name === 'A');
+})();
+
+// T16: RANKED round applies ratings and annotates result rows.
+(() => {
+  const store = new RatingStore(path.join(os.tmpdir(), 'naga-test-ratings-2.json'));
+  store.players.clear();
+  const room = new GameRoom('RK', 'RANKED', 'VOID');
+  room.ratings = store;
+  const pa = room.addPlayer('a', { pid: 'pa', name: 'ALPHA' });
+  const pb = room.addPlayer('b', { pid: 'pb', name: 'BETA' });
+  room.setReady('a', true); room.setReady('b', true);
+  room.maybeStart();
+  room.update(CONFIG.COUNTDOWN_MS + 1);
+  // B crashes into the wall; A survives and wins the ranked round.
+  pb.body = [{ x: room.map.w - 1, y: 5 }, { x: room.map.w - 2, y: 5 }, { x: room.map.w - 3, y: 5 }];
+  pb.dir = pb.pendingDir = 'RIGHT';
+  pa.body = [{ x: 5, y: 20 }, { x: 4, y: 20 }, { x: 3, y: 20 }]; pa.dir = pa.pendingDir = 'DOWN';
+  room.items = [];
+  room.update(CONFIG.STEP_MS);
+  check('T16: ranked round ended', room.phase === 'RESULT');
+  const winner = room.results.find((r) => r.rank === 1);
+  check('T16: winner row annotated with rating gain', winner && winner.rating && winner.rating.delta === 25);
+  check('T16: store updated for winner', store.get('pa').rating === 1025);
+})();
+
+// T17: a player joining mid-round spectates and is excluded from results.
+(() => {
+  const room = playingRoom(2);
+  const spec = room.addPlayer('spec', { pid: 'ps', name: 'WATCHER' });
+  check('T17: mid-round joiner is spectating', spec.spectating === true);
+  check('T17: spectator not a round participant', !room.roundParticipants.includes(spec));
+  // End the round; spectator must not appear in results.
+  const [a, b] = arr(room).filter((p) => p !== spec);
+  a.body = [{ x: room.map.w - 1, y: 5 }, { x: room.map.w - 2, y: 5 }, { x: room.map.w - 3, y: 5 }];
+  a.dir = a.pendingDir = 'RIGHT';
+  room.items = [];
+  stepOnce(room);
+  check('T17: results exclude the spectator', !room.results.some((r) => r.id === 'spec'));
+})();
+
+// T18: name sanitisation.
+(() => {
+  check('T18: trims & caps name', sanitizeName('  Snakey McSnake Face  ').length <= 16);
+  check('T18: empty -> null', sanitizeName('   ') === null);
+  check('T18: strips control chars', sanitizeName('a'+String.fromCharCode(1)+'b'+String.fromCharCode(31)+'c') === 'abc');
 })();
 
 console.log(`\n${failures === 0 ? 'ALL UNIT TESTS PASS' : failures + ' UNIT TESTS FAILED'}`);

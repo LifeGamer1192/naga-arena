@@ -1,6 +1,6 @@
-# NAGA ARENA - Fly.io config (Phase 1 MVP)
+# NAGA ARENA - Fly.io config
 # Single machine on purpose: the game room is in-memory, so all players
-# must hit the same instance (multi-node sharing is Phase 2 via Redis).
+# must hit the same instance (multi-node sharing is a later phase via Redis).
 app = "naga-arena"
 primary_region = "nrt"  # Tokyo
 
@@ -8,6 +8,12 @@ primary_region = "nrt"  # Tokyo
 
 [env]
   PORT = "8080"
+  # Ratings/leaderboard persist on a mounted volume so they survive redeploys.
+  RATINGS_FILE = "/data/ratings.json"
+
+[mounts]
+  source = "naga_data"
+  destination = "/data"
 
 [http_service]
   internal_port = 8080

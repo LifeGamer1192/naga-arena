@@ -6,6 +6,9 @@ npm-debug.log*
 dist/
 *.log
 
+# Local rating/leaderboard data
+data/
+
 # Local Claude Code settings (may contain local paths)
 .claude/
 

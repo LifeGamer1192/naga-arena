@@ -9,20 +9,23 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { RoomManager } from './game.js';
+import { RatingStore, tierOf } from './ratings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const PORT = process.env.PORT || 3000;
 const BROADCAST_MS = 50;
 
+const ratings = new RatingStore();
+const manager = new RoomManager(ratings);
+
 const app = express();
 app.use(express.static(PUBLIC_DIR));
 app.get('/health', (_req, res) => res.json({ ok: true, rooms: manager.rooms.size }));
+app.get('/api/leaderboard', (_req, res) => res.json({ leaderboard: ratings.leaderboard(50) }));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
-
-const manager = new RoomManager();
 const clients = new Map(); // id -> { ws, roomCode }
 
 function send(ws, type, data) {
@@ -50,10 +53,15 @@ wss.on('connection', (ws) => {
       case 'join': {
         const room = manager.getOrCreate(msg.room, msg.mode, msg.map);
         client.roomCode = room.code;
-        const player = room.addPlayer(id);
+        const player = room.addPlayer(id, { pid: msg.pid, name: msg.name });
+        const r = player.pid ? ratings.get(player.pid) : null;
         send(ws, 'welcome', {
           id, room: room.code,
-          you: { name: player.name, color: player.color },
+          you: {
+            name: player.name, color: player.color,
+            rating: r ? r.rating : null,
+            tier: r ? tierOf(r.rating).name : null,
+          },
           isHost: room.hostId === id,
         });
         break;
@@ -110,5 +118,5 @@ setInterval(() => {
 
 server.listen(PORT, () => {
   console.log(`NAGA ARENA server listening on http://localhost:${PORT}`);
-  console.log('Phase 2 — rooms, 4 maps, 7 items, Battle Royale / Score Attack / Team Battle');
+  console.log('Phase 3 — rooms, 4 maps, 7 items, 4 modes (incl. Ranked), rating, leaderboard, spectating');
 });
