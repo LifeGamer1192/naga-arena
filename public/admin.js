@@ -39,8 +39,13 @@
   }
 
   function renderTable(samples) {
+    // Only show samples with some activity; hide the whole panel if all are 0.
+    const rows = samples.filter((s) => s.humans || s.rooms || s.bots);
+    const panel = $('samples-panel');
+    if (!rows.length) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
     const tb = $('table').querySelector('tbody');
-    tb.innerHTML = samples.slice(-30).reverse().map((s) =>
+    tb.innerHTML = rows.slice(-30).reverse().map((s) =>
       `<tr><td>${fmtTime(s.t)}</td><td>${s.humans}</td><td>${s.rooms}</td><td>${s.bots}</td></tr>`).join('');
   }
 
