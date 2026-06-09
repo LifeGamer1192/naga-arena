@@ -1,5 +1,5 @@
 // Deterministic unit tests for the Phase 2 + Phase 3 engine (no network).
-import { GameRoom, RoomManager, CONFIG, sanitizeName } from '../server/game.js';
+import { GameRoom, RoomManager, CONFIG, sanitizeName, sanitizeSkin } from '../server/game.js';
 import { RatingStore, tierOf } from '../server/ratings.js';
 import os from 'os';
 import path from 'path';
@@ -246,6 +246,62 @@ const stepOnce = (room) => room.update(CONFIG.STEP_MS); // advance every snake o
   check('T18: trims & caps name', sanitizeName('  Snakey McSnake Face  ').length <= 16);
   check('T18: empty -> null', sanitizeName('   ') === null);
   check('T18: strips control chars', sanitizeName('a'+String.fromCharCode(1)+'b'+String.fromCharCode(31)+'c') === 'abc');
+})();
+
+// T19: skin sanitisation.
+(() => {
+  const ok = sanitizeSkin({ pattern: 'NEON', color: '#39ff14' });
+  check('T19: valid skin kept', ok.pattern === 'NEON' && ok.color === '#39ff14');
+  const bad = sanitizeSkin({ pattern: 'BOGUS', color: '#123123' });
+  check('T19: invalid pattern -> SOLID, bad color -> null', bad.pattern === 'SOLID' && bad.color === null);
+  check('T19: null skin -> null', sanitizeSkin(null) === null);
+})();
+
+// T20: skin is applied to the player and exposed in the snapshot.
+(() => {
+  const room = new GameRoom('SK', 'BATTLE_ROYALE', 'VOID');
+  const p = room.addPlayer('a', { skin: { pattern: 'STRIPES', color: '#0a84ff' } });
+  check('T20: player skin stored', p.skin.pattern === 'STRIPES');
+  check('T20: chosen colour overrides auto colour', p.color === '#0a84ff');
+  const snap = room.snapshot();
+  check('T20: snapshot carries skin', snap.snakes[0].skin.pattern === 'STRIPES');
+})();
+
+// T21: TOURNAMENT runs N rounds, accumulates points, then crowns a champion.
+(() => {
+  const room = new GameRoom('TR', 'TOURNAMENT', 'VOID');
+  const pa = room.addPlayer('a'); const pb = room.addPlayer('b');
+  room.setReady('a', true); room.setReady('b', true);
+  room.maybeStart();
+  check('T21: tournament started, round 0, active', room.tournamentActive && room.tournamentRound === 0);
+
+  const forceRoundEnd = () => {
+    room.update(CONFIG.COUNTDOWN_MS + 1); // COUNTDOWN -> PLAYING
+    // a survives (heads down in open space); b drives into the right wall.
+    pa.body = [{ x: 5, y: 20 }, { x: 4, y: 20 }, { x: 3, y: 20 }]; pa.dir = pa.pendingDir = 'DOWN';
+    pb.body = [{ x: room.map.w - 1, y: 6 }, { x: room.map.w - 2, y: 6 }, { x: room.map.w - 3, y: 6 }];
+    pb.dir = pb.pendingDir = 'RIGHT';
+    room.ensureFood = () => {}; room.items = [];
+    room.update(CONFIG.STEP_MS); // b crashes -> endRound -> RESULT
+  };
+
+  forceRoundEnd();
+  check('T21: round 1 ended, points awarded', room.tournamentRound === 1 && room.phase === 'RESULT');
+  const r1 = room.results.find((r) => r.id === 'a');
+  check('T21: winner got round points', r1 && r1.roundPoints === 2);
+
+  // Advance through the remaining rounds.
+  room.update(CONFIG.INTERMISSION_MS + 1); // RESULT -> next COUNTDOWN
+  forceRoundEnd(); // round 2
+  room.update(CONFIG.INTERMISSION_MS + 1);
+  forceRoundEnd(); // round 3 (final)
+  check('T21: tournament finished after 3 rounds', room.tournamentRound === 3 && !room.tournamentActive);
+  check('T21: champion is player a (most points)', room.champion && room.champion.id === 'a');
+  check('T21: standings total points = 6 for a', room.tournamentStandings()[0].points === 6);
+
+  // After the final RESULT, it returns to the lobby (not another round).
+  room.update(CONFIG.RESULT_MS + 1);
+  check('T21: returns to lobby after final round', room.phase === 'LOBBY');
 })();
 
 console.log(`\n${failures === 0 ? 'ALL UNIT TESTS PASS' : failures + ' UNIT TESTS FAILED'}`);

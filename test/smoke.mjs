@@ -28,10 +28,14 @@ function makeClient(label, strategy) {
     const msg = JSON.parse(raw.toString());
     if (msg.type === 'welcome') {
       c.id = msg.id;
-      ws.send(JSON.stringify({ type: 'ready', ready: true }));
     } else if (msg.type === 'state') {
       c.mode = msg.state.mode;
       c.state = msg.state;
+      // Ready up only once both bots are present, so the round never starts solo.
+      if (!c.readied && msg.state.phase === 'LOBBY' && msg.state.snakes.length >= 2) {
+        c.readied = true;
+        c.ws.send(JSON.stringify({ type: 'ready', ready: true }));
+      }
       const me = msg.state.snakes.find((s) => s.id === c.id);
       if (me) {
         c.maxLen = Math.max(c.maxLen, me.body.length);

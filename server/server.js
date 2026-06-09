@@ -20,6 +20,21 @@ const ratings = new RatingStore();
 const manager = new RoomManager(ratings);
 
 const app = express();
+app.disable('x-powered-by');
+
+// Basic security headers for the production deploy.
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; " +
+    "style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'self'; frame-ancestors 'self'",
+  );
+  next();
+});
+
 app.use(express.static(PUBLIC_DIR));
 app.get('/health', (_req, res) => res.json({ ok: true, rooms: manager.rooms.size }));
 app.get('/api/leaderboard', (_req, res) => res.json({ leaderboard: ratings.leaderboard(50) }));
@@ -53,7 +68,7 @@ wss.on('connection', (ws) => {
       case 'join': {
         const room = manager.getOrCreate(msg.room, msg.mode, msg.map);
         client.roomCode = room.code;
-        const player = room.addPlayer(id, { pid: msg.pid, name: msg.name });
+        const player = room.addPlayer(id, { pid: msg.pid, name: msg.name, skin: msg.skin });
         const r = player.pid ? ratings.get(player.pid) : null;
         send(ws, 'welcome', {
           id, room: room.code,
@@ -118,5 +133,5 @@ setInterval(() => {
 
 server.listen(PORT, () => {
   console.log(`NAGA ARENA server listening on http://localhost:${PORT}`);
-  console.log('Phase 3 — rooms, 4 maps, 7 items, 4 modes (incl. Ranked), rating, leaderboard, spectating');
+  console.log('Phase 4 — skins, tournament mode, 5 modes, ratings, leaderboard, spectating');
 });

@@ -79,6 +79,31 @@ html, body {
 .lb-list .stats { margin-left: auto; color: var(--muted); font-size: 12px; }
 .lb-list .final { font-weight: 800; color: var(--accent2); width: 56px; text-align: right; }
 
+.title-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+
+/* Customize */
+.skin-preview { background: #070b14; border: 1px solid #1c2840; border-radius: 8px; max-width: 92vw; }
+.swatch-btn { width: 30px; height: 30px; border-radius: 6px; border: 2px solid transparent; cursor: pointer; }
+.swatch-btn.selected { border-color: #ffffff; box-shadow: 0 0 10px rgba(255,255,255,0.5); }
+
+/* Tournament */
+.tournament-bar {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  background: rgba(8,12,22,0.8); border: 1px solid var(--accent); color: var(--accent);
+  padding: 6px 16px; border-radius: 16px; font-weight: 800; letter-spacing: 2px; font-size: 13px;
+}
+.champion {
+  font-size: 20px; font-weight: 900; color: var(--accent); letter-spacing: 1px;
+  display: flex; align-items: center; gap: 10px; justify-content: center;
+  text-shadow: 0 0 20px rgba(57,255,20,0.4);
+}
+.tournament-standings { background: var(--panel); border: 1px solid #1c2840; border-radius: 8px; padding: 10px 14px; min-width: 300px; max-width: 92vw; }
+.tournament-standings .ts-title { color: var(--muted); font-size: 12px; letter-spacing: 2px; margin-bottom: 6px; }
+.ts-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+.ts-row.me { color: var(--accent); }
+.ts-place { font-weight: 900; width: 24px; }
+.ts-pts { margin-left: auto; font-weight: 800; color: var(--accent2); }
+
 .spectating {
   position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
   background: rgba(8,12,22,0.8); border: 1px solid var(--accent2); color: var(--accent2);

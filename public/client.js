@@ -9,7 +9,7 @@
   const screens = {
     title: $('screen-title'), lobby: $('screen-lobby'),
     game: $('screen-game'), result: $('screen-result'),
-    leaderboard: $('screen-leaderboard'),
+    leaderboard: $('screen-leaderboard'), customize: $('screen-customize'),
   };
   const connStatus = $('conn-status');
   const canvas = $('board');
@@ -23,6 +23,10 @@
   const resultCountdown = $('result-countdown');
   const touchControls = $('touch-controls');
   const spectatingEl = $('spectating');
+  const tournamentBar = $('tournament-bar');
+  const championEl = $('champion');
+  const tournamentStandingsEl = $('tournament-standings');
+  const resultTitle = $('result-title');
   const roomCodeEl = $('room-code');
   const playerList = $('player-list');
   const hostNote = $('host-note');
@@ -32,6 +36,13 @@
     { id: 'SCORE_ATTACK', label: 'SCORE ATTACK' },
     { id: 'TEAM_BATTLE', label: 'TEAM BATTLE' },
     { id: 'RANKED', label: 'RANKED' },
+    { id: 'TOURNAMENT', label: 'TOURNAMENT' },
+  ];
+  // Must match server SKIN_PATTERNS / SKIN_COLORS.
+  const SKIN_PATTERNS = ['SOLID', 'STRIPES', 'GRADIENT', 'NEON', 'DASHED'];
+  const SKIN_COLORS = [
+    '#39ff14', '#ff2d55', '#0a84ff', '#ffd60a',
+    '#bf5af2', '#ff9f0a', '#64d2ff', '#ff6482', '#ffffff', '#00e0c0',
   ];
   const MAPS = [
     { id: 'VOID', label: 'VOID' }, { id: 'LABYRINTH', label: 'LABYRINTH' },
@@ -71,6 +82,19 @@
   const nameInput = $('name-input');
   nameInput.value = localStorage.getItem('naga_name') || '';
   function myName() { return (nameInput.value || '').trim(); }
+
+  // Skin selection, persisted locally.
+  function loadSkin() {
+    try {
+      const s = JSON.parse(localStorage.getItem('naga_skin'));
+      if (s && SKIN_PATTERNS.includes(s.pattern)) {
+        return { pattern: s.pattern, color: SKIN_COLORS.includes(s.color) ? s.color : SKIN_COLORS[0] };
+      }
+    } catch { /* ignore */ }
+    return { pattern: 'SOLID', color: SKIN_COLORS[0] };
+  }
+  let mySkin = loadSkin();
+  function saveSkin() { localStorage.setItem('naga_skin', JSON.stringify(mySkin)); }
 
   function showScreen(name) {
     for (const [k, el] of Object.entries(screens)) el.classList.toggle('active', k === name);
@@ -113,10 +137,88 @@
     history.replaceState(null, '', url.toString());
   }
 
+  // ---- Sound engine (procedural WebAudio, no asset files) ----
+  const sound = (() => {
+    let ctx = null;
+    let muted = localStorage.getItem('naga_muted') === '1';
+    const ensure = () => {
+      if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { ctx = null; } }
+      if (ctx && ctx.state === 'suspended') ctx.resume();
+      return ctx;
+    };
+    function tone(freq, dur, type = 'square', gain = 0.07, slideTo = null) {
+      if (muted) return;
+      const ac = ensure(); if (!ac) return;
+      const osc = ac.createOscillator(), g = ac.createGain();
+      osc.type = type; osc.frequency.setValueAtTime(freq, ac.currentTime);
+      if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, ac.currentTime + dur);
+      g.gain.setValueAtTime(gain, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+      osc.connect(g); g.connect(ac.destination);
+      osc.start(); osc.stop(ac.currentTime + dur);
+    }
+    const seq = (notes) => notes.forEach((n, i) => setTimeout(() => tone(n.f, n.d || 0.12, n.t || 'square', 0.07, n.s), i * 90));
+    return {
+      isMuted: () => muted,
+      toggle() { muted = !muted; localStorage.setItem('naga_muted', muted ? '1' : '0'); if (!muted) ensure(); return muted; },
+      resume: ensure,
+      eat() { tone(660, 0.08, 'square', 0.05); },
+      pickup() { seq([{ f: 520 }, { f: 780 }]); },
+      kill() { tone(300, 0.25, 'sawtooth', 0.08, 120); },
+      death() { tone(200, 0.45, 'sawtooth', 0.09, 70); },
+      beep() { tone(440, 0.1, 'sine', 0.08); },
+      go() { tone(880, 0.2, 'sine', 0.09); },
+      win() { seq([{ f: 523, t: 'sine' }, { f: 659, t: 'sine' }, { f: 784, t: 'sine' }, { f: 1047, t: 'sine', d: 0.25 }]); },
+      lose() { seq([{ f: 392, t: 'triangle' }, { f: 311, t: 'triangle', d: 0.3 }]); },
+    };
+  })();
+
+  const btnSound = $('btn-sound');
+  if (sound.isMuted()) btnSound.textContent = 'SOUND: OFF';
+  btnSound.addEventListener('click', () => {
+    const muted = sound.toggle();
+    btnSound.textContent = muted ? 'SOUND: OFF' : 'SOUND: ON';
+  });
+
+  // ---- Customize UI ----
+  function buildCustomize() {
+    const pRow = $('pattern-options'), cRow = $('color-options');
+    pRow.innerHTML = ''; cRow.innerHTML = '';
+    for (const p of SKIN_PATTERNS) {
+      const b = document.createElement('button');
+      b.className = 'opt'; b.dataset.pattern = p; b.textContent = p;
+      b.addEventListener('click', () => { mySkin.pattern = p; saveSkin(); refreshCustomize(); });
+      pRow.appendChild(b);
+    }
+    for (const c of SKIN_COLORS) {
+      const b = document.createElement('button');
+      b.className = 'swatch-btn'; b.dataset.color = c; b.style.background = c;
+      b.addEventListener('click', () => { mySkin.color = c; saveSkin(); refreshCustomize(); });
+      cRow.appendChild(b);
+    }
+  }
+  function refreshCustomize() {
+    document.querySelectorAll('#pattern-options .opt').forEach((b) => b.classList.toggle('selected', b.dataset.pattern === mySkin.pattern));
+    document.querySelectorAll('#color-options .swatch-btn').forEach((b) => b.classList.toggle('selected', b.dataset.color === mySkin.color));
+    drawSkinPreview();
+  }
+  function drawSkinPreview() {
+    const pc = $('skin-preview'), g = pc.getContext('2d');
+    g.clearRect(0, 0, pc.width, pc.height);
+    const cs = 24, n = 11;
+    const body = [];
+    for (let i = 0; i < n; i++) body.push({ x: n - i, y: 1 }); // head at the right
+    paintSnake(g, body, mySkin, cs, true);
+  }
+  buildCustomize();
+  $('btn-customize').addEventListener('click', () => { showScreen('customize'); refreshCustomize(); });
+  $('btn-customize-back').addEventListener('click', () => showScreen('title'));
+
   // ---- Enter / lobby controls ----
   $('btn-enter').addEventListener('click', () => {
     localStorage.setItem('naga_name', myName());
-    send({ type: 'join', room: roomFromUrl(), mode: 'BATTLE_ROYALE', map: 'VOID', pid: myPid, name: myName() });
+    sound.resume(); // unlock audio on the first user gesture
+    send({ type: 'join', room: roomFromUrl(), mode: 'BATTLE_ROYALE', map: 'VOID', pid: myPid, name: myName(), skin: mySkin });
   });
 
   // ---- Leaderboard ----
@@ -201,10 +303,37 @@
     const nameOf = (id) => { const s = snakes.find((x) => x.id === id); return s ? s.name : '???'; };
     killFeed.unshift(ev.killer ? `${nameOf(ev.killer)} x ${nameOf(ev.victim)}` : `${nameOf(ev.victim)} crashed`);
     killFeed = killFeed.slice(0, 5);
+    if (ev.killer === myId && ev.victim !== myId) sound.kill();
+  }
+
+  // Sound-effect detection from state diffs.
+  let prevScore = 0, prevEffects = {}, prevAlive = false, prevCountdown = 0;
+  function detectSounds(state) {
+    const me = state.snakes.find((s) => s.id === myId);
+    if (state.phase === 'COUNTDOWN' && state.countdown !== prevCountdown) {
+      if (state.countdown > 0) sound.beep();
+      prevCountdown = state.countdown;
+    }
+    if (state.phase === 'PLAYING' && me) {
+      if (prevPhase === 'COUNTDOWN') sound.go();
+      if (me.score > prevScore) sound.eat();
+      const fx = me.effects || {};
+      if ((fx.speed && !prevEffects.speed) || (fx.shield && !prevEffects.shield) || (fx.ghost && !prevEffects.ghost)) sound.pickup();
+      if (prevAlive && !me.alive) sound.death();
+      prevScore = me.score; prevEffects = { ...fx }; prevAlive = me.alive;
+    } else if (state.phase !== 'PLAYING') {
+      prevScore = me ? me.score : 0; prevEffects = (me && me.effects) || {}; prevAlive = me ? me.alive : false;
+    }
+    if (state.phase === 'RESULT' && prevPhase !== 'RESULT' && me) {
+      const r = (state.results || []).find((x) => x.id === myId);
+      if (r && r.rank === 1) sound.win(); else sound.lose();
+    }
+    if (state.phase === 'COUNTDOWN' && prevPhase !== 'COUNTDOWN') prevCountdown = 0;
   }
 
   // ---- state ----
   function onState(state) {
+    detectSounds(state);
     lastState = state;
     isHost = state.hostId === myId;
 
@@ -253,6 +382,8 @@
 
   function renderResult(state) {
     if (!state.results) return;
+    const t = state.tournament;
+
     if (state.teamTotals) {
       const { RED, BLUE } = state.teamTotals;
       const winner = RED === BLUE ? 'DRAW' : (RED > BLUE ? 'RED' : 'BLUE');
@@ -260,6 +391,24 @@
       teamResultEl.innerHTML = `<span style="color:#ff3b5c">RED ${RED}</span> &nbsp;vs&nbsp; <span style="color:#2d7dff">BLUE ${BLUE}</span><br>` +
         (winner === 'DRAW' ? 'DRAW' : `${winner} WINS`);
     } else { teamResultEl.classList.add('hidden'); }
+
+    // Tournament: round vs final standings / champion.
+    const finished = t && !t.active;
+    resultTitle.textContent = t ? (finished ? 'TOURNAMENT OVER' : `ROUND ${t.round} / ${t.rounds}`) : 'RESULT';
+    if (t && finished && t.champion) {
+      championEl.classList.remove('hidden');
+      championEl.innerHTML = `<span class="swatch" style="background:${t.champion.color}"></span> CHAMPION: ${esc(t.champion.name)} (${t.champion.points} pts)`;
+    } else { championEl.classList.add('hidden'); }
+    if (t) {
+      tournamentStandingsEl.classList.remove('hidden');
+      tournamentStandingsEl.innerHTML = '<div class="ts-title">STANDINGS</div>' + t.standings.map((row) => `
+        <div class="ts-row ${row.id === myId ? 'me' : ''}">
+          <span class="ts-place">${row.place}</span>
+          <span class="swatch" style="background:${row.color}"></span>
+          <span class="pname">${esc(row.name)}</span>
+          <span class="ts-pts">${row.points} pts</span>
+        </div>`).join('');
+    } else { tournamentStandingsEl.classList.add('hidden'); }
 
     resultList.innerHTML = '';
     for (const r of state.results) {
@@ -272,15 +421,16 @@
         const cls = d >= 0 ? 'up' : 'down';
         ratingHtml = `<span class="rating ${cls}">${d >= 0 ? '+' : ''}${d} &rarr; ${r.rating.after} <small>${esc(r.rating.tier)}</small></span>`;
       }
+      const ptsHtml = (r.roundPoints != null) ? `<span class="rating up">+${r.roundPoints} pt</span>` : '';
       li.innerHTML = `<span class="rank">${r.rank}</span>
         <span class="swatch" style="background:${r.color}"></span>
         <span class="pname">${esc(r.name)}${me}</span>
         <span class="stats">food ${r.foodCount} / kills ${r.kills}</span>
-        ${ratingHtml}
+        ${ratingHtml}${ptsHtml}
         <span class="final">${r.score}</span>`;
       resultList.appendChild(li);
     }
-    resultCountdown.textContent = 'Returning to lobby...';
+    resultCountdown.textContent = t && t.active ? 'Next round starting...' : 'Returning to lobby...';
   }
 
   function resizeCanvas(map) {
@@ -340,6 +490,13 @@
     spectatingEl.classList.toggle('hidden', !spectating);
     if (spectating) spectatingEl.textContent = mine.spectating ? 'SPECTATING (next round)' : 'SPECTATING';
 
+    // Tournament progress bar.
+    if (state.tournament) {
+      tournamentBar.classList.remove('hidden');
+      const t = state.tournament;
+      tournamentBar.textContent = `TOURNAMENT  ROUND ${Math.min(t.round + 1, t.rounds)} / ${t.rounds}`;
+    } else { tournamentBar.classList.add('hidden'); }
+
     renderHud(state);
   }
 
@@ -369,13 +526,11 @@
     if (!s.body || s.body.length === 0) return;
     const fx = s.effects || {};
     ctx.globalAlpha = s.alive ? (fx.ghost ? 0.45 : 1) : 0.3;
-    const base = s.alive ? s.color : 'rgba(120,130,150,0.6)';
-    for (let i = 0; i < s.body.length; i++) {
-      const seg = s.body[i];
-      ctx.fillStyle = fx.frozen ? '#9fe8ff' : base;
-      const pad = i === 0 ? 0.5 : 1.5;
-      roundRect(seg.x * cell + pad, seg.y * cell + pad, cell - pad * 2, cell - pad * 2, 3);
-    }
+    const effSkin = {
+      pattern: (s.alive && !fx.frozen) ? ((s.skin && s.skin.pattern) || 'SOLID') : 'SOLID',
+      color: !s.alive ? 'rgba(120,130,150,0.7)' : (fx.frozen ? '#9fe8ff' : s.color),
+    };
+    paintSnake(ctx, s.body, effSkin, cell, false);
     ctx.globalAlpha = 1;
     if (!s.alive) return;
     const head = s.body[0];
@@ -389,17 +544,46 @@
     ctx.globalAlpha = 1;
   }
 
-  function roundRect(x, y, w, h, r) {
+  // Shared snake painter (used by the game and the skin preview).
+  function paintSnake(g, body, skin, cellSize, isPreview) {
+    const pattern = (skin && skin.pattern) || 'SOLID';
+    const color = (skin && skin.color) || '#39ff14';
+    if (pattern === 'NEON') { g.shadowColor = color; g.shadowBlur = cellSize * 0.6; }
+    for (let i = 0; i < body.length; i++) {
+      const seg = body[i];
+      if (pattern === 'DASHED' && i % 2 === 1 && i !== 0) continue; // leave gaps
+      let fill = color;
+      if (pattern === 'STRIPES') fill = (i % 2 === 0) ? color : shade(color, 0.5);
+      else if (pattern === 'GRADIENT') fill = shade(color, 1 - (i / Math.max(1, body.length)) * 0.65);
+      g.fillStyle = fill;
+      const pad = i === 0 ? 0.5 : 1.5;
+      roundRectOn(g, seg.x * cellSize + pad, seg.y * cellSize + pad, cellSize - pad * 2, cellSize - pad * 2, 3);
+    }
+    g.shadowBlur = 0;
+  }
+
+  // Darken (<1) or lighten (>1) a #rrggbb colour; non-hex passes through.
+  function shade(hex, factor) {
+    if (typeof hex !== 'string' || hex[0] !== '#' || hex.length !== 7) return hex;
+    const n = parseInt(hex.slice(1), 16);
+    const r = Math.min(255, Math.round(((n >> 16) & 255) * factor));
+    const gg = Math.min(255, Math.round(((n >> 8) & 255) * factor));
+    const b = Math.min(255, Math.round((n & 255) * factor));
+    return `rgb(${r},${gg},${b})`;
+  }
+
+  function roundRectOn(g, x, y, w, h, r) {
     if (w <= 0 || h <= 0) return;
     r = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath(); ctx.fill();
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath(); g.fill();
   }
+  function roundRect(x, y, w, h, r) { roundRectOn(ctx, x, y, w, h, r); }
 
   function renderHud(state) {
     const sorted = [...state.snakes].sort((a, b) => b.score - a.score);

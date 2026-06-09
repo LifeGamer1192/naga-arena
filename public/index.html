@@ -14,8 +14,27 @@
       <p class="tagline">Real-time Multiplayer Snake</p>
       <input id="name-input" class="name-input" maxlength="16" placeholder="Your name" />
       <button id="btn-enter" class="btn primary">ENTER ARENA</button>
-      <button id="btn-leaderboard" class="btn small">LEADERBOARD</button>
+      <div class="title-actions">
+        <button id="btn-customize" class="btn small">CUSTOMIZE</button>
+        <button id="btn-leaderboard" class="btn small">LEADERBOARD</button>
+        <button id="btn-sound" class="btn small">SOUND: ON</button>
+      </div>
       <p class="conn" id="conn-status">Connecting...</p>
+    </section>
+
+    <!-- CUSTOMIZE -->
+    <section id="screen-customize" class="screen">
+      <h2>CUSTOMIZE SKIN</h2>
+      <canvas id="skin-preview" class="skin-preview" width="320" height="80"></canvas>
+      <div class="config-group">
+        <span class="config-title">PATTERN</span>
+        <div class="opt-row" id="pattern-options"></div>
+      </div>
+      <div class="config-group">
+        <span class="config-title">COLOR</span>
+        <div class="opt-row" id="color-options"></div>
+      </div>
+      <button id="btn-customize-back" class="btn small">DONE</button>
     </section>
 
     <!-- LEADERBOARD -->
@@ -58,6 +77,7 @@
       <canvas id="board"></canvas>
       <div id="countdown" class="countdown hidden"></div>
       <div id="spectating" class="spectating hidden">SPECTATING</div>
+      <div id="tournament-bar" class="tournament-bar hidden"></div>
       <div id="hud" class="hud">
         <div id="scoreboard" class="scoreboard"></div>
         <div class="hud-right">
@@ -75,8 +95,10 @@
 
     <!-- RESULT -->
     <section id="screen-result" class="screen">
-      <h2>RESULT</h2>
+      <h2 id="result-title">RESULT</h2>
+      <div id="champion" class="champion hidden"></div>
       <div id="team-result" class="team-result hidden"></div>
+      <div id="tournament-standings" class="tournament-standings hidden"></div>
       <ol id="result-list" class="result-list"></ol>
       <p class="hint" id="result-countdown"></p>
     </section>

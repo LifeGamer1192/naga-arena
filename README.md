@@ -7,9 +7,9 @@ A browser-based, real-time multiplayer snake game with an authoritative server
 > Share the room link with friends and open it on multiple devices to play together.
 > (Machines stop when idle, so the first request may take a few seconds to cold-start.)
 
-> **Phase 3** — current state of this repository.
-> URL-shared rooms / all 7 items / 4 maps / 4 game modes / Ranked rating +
-> leaderboard / spectating / mobile support.
+> **Phase 4** — current state of this repository (feature-complete).
+> URL-shared rooms / all 7 items / 4 maps / 5 game modes / Ranked rating +
+> leaderboard / spectating / custom skins / sound effects / mobile support.
 
 ## Features
 
@@ -17,14 +17,20 @@ A browser-based, real-time multiplayer snake game with an authoritative server
   server-side, which keeps the game cheat-resistant. Clients only send input.
 - **URL-shared rooms**: each room has a short code in the URL. Open the same link
   to join the same room; the host picks the mode and map.
-- **4 game modes**:
+- **5 game modes**:
   - **Battle Royale** — last snake standing wins.
   - **Score Attack** — 3 minutes, respawn on death, highest score wins.
   - **Team Battle** — 2 teams, friendly pass-through, highest team total wins.
   - **Ranked** — last-survivor play that updates your persistent rating.
+  - **Tournament** — a 3-round series; placement points accumulate and a
+    champion is crowned.
 - **Ranked rating & leaderboard**: a persistent rating per player (no account
   needed — a local id), tier-scaled win/loss deltas, and a global leaderboard
   served at `/api/leaderboard`.
+- **Custom skins**: pick a pattern (solid, stripes, gradient, neon, dashed) and
+  colour; saved locally and rendered for everyone.
+- **Sound effects**: procedural WebAudio SFX for eat / pickup / kill / death /
+  countdown / win, with a mute toggle.
 - **Spectating**: join a room mid-match (or after being eliminated) and watch
   the live game until the next round.
 - **4 maps**: VOID (open), LABYRINTH (maze walls), TUNNEL (wrap-around edges),
@@ -32,6 +38,7 @@ A browser-based, real-time multiplayer snake game with an authoritative server
 - **7 items**: Food, Super Food, Speed Up, Shrink, Shield, Freeze Bomb, Ghost.
 - **Real-time sync** over WebSocket, broadcasting state at 20 ticks/sec.
 - **Desktop & mobile**: arrow keys / WASD, or swipe / on-screen D-pad.
+- **Production hardening**: security headers (CSP, nosniff, frame options).
 
 ## Requirements
 
@@ -127,13 +134,14 @@ naga_arena/
 ├── Dockerfile, fly.toml, .dockerignore   # deployment
 ├── server/
 │   ├── server.js   # Express + ws, RoomManager wiring, broadcast loop, /api
-│   ├── game.js     # GameRoom + RoomManager: movement, items, modes, scoring
+│   ├── game.js     # GameRoom + RoomManager: movement, items, modes, scoring,
+│   │               #   tournaments, skins
 │   ├── maps.js     # 4 map definitions
 │   └── ratings.js  # persistent rating store, tiers, leaderboard
 ├── public/
-│   ├── index.html  # screens: TITLE / LEADERBOARD / LOBBY / GAME / RESULT
+│   ├── index.html  # screens: TITLE / CUSTOMIZE / LEADERBOARD / LOBBY / GAME / RESULT
 │   ├── style.css
-│   └── client.js   # WebSocket client, Canvas renderer, input
+│   └── client.js   # WebSocket client, Canvas renderer, input, SFX, skins
 └── test/
     ├── unit.mjs    # deterministic engine tests
     └── smoke.mjs   # headless 2-client end-to-end test
@@ -169,7 +177,7 @@ volume (`/data`) via the `RATINGS_FILE` env var, so they survive redeploys.
 | Phase 1 | MVP: WebSocket, Battle Royale, food only | ✅ done |
 | Phase 2 | URL-shared rooms, all items, 4 maps, modes, mobile | ✅ done |
 | Phase 3 | Ranked mode, rating, leaderboard, spectating | ✅ done |
-| Phase 4 | Skins, SFX, tournament mode, production deploy | planned |
+| Phase 4 | Skins, SFX, tournament mode, production deploy | ✅ done |
 
 ## License
 

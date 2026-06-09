@@ -18,6 +18,8 @@ export const CONFIG = {
   TIMED_DURATION_MS: 180000, // 3 minutes for Score Attack / Team Battle
   START_LEN: 3,
   MAX_PLAYERS: 8,
+  TOURNAMENT_ROUNDS: 3,  // rounds in a Tournament series
+  INTERMISSION_MS: 4500, // pause between Tournament rounds
 };
 
 const DIRS = {
@@ -39,6 +41,7 @@ export const MODES = {
   SCORE_ATTACK: { id: 'SCORE_ATTACK', respawn: true, timed: true, teams: false },
   TEAM_BATTLE: { id: 'TEAM_BATTLE', respawn: true, timed: true, teams: true },
   RANKED: { id: 'RANKED', respawn: false, timed: false, teams: false, ranked: true },
+  TOURNAMENT: { id: 'TOURNAMENT', respawn: false, timed: false, teams: false, tournament: true },
 };
 
 export function sanitizeName(name) {
@@ -46,6 +49,21 @@ export function sanitizeName(name) {
   return s || null;
 }
 export const MODE_IDS = Object.keys(MODES);
+
+// Customisable snake skins. Players pick a pattern and a colour; rendering is
+// done client-side from this descriptor.
+export const SKIN_PATTERNS = ['SOLID', 'STRIPES', 'GRADIENT', 'NEON', 'DASHED'];
+export const SKIN_COLORS = [
+  '#39ff14', '#ff2d55', '#0a84ff', '#ffd60a',
+  '#bf5af2', '#ff9f0a', '#64d2ff', '#ff6482', '#ffffff', '#00e0c0',
+];
+
+export function sanitizeSkin(skin) {
+  if (!skin || typeof skin !== 'object') return null;
+  const pattern = SKIN_PATTERNS.includes(skin.pattern) ? skin.pattern : 'SOLID';
+  const color = SKIN_COLORS.includes(skin.color) ? skin.color : null;
+  return { pattern, color };
+}
 
 // Item catalogue. `prob` is the chance to be chosen on a special-spawn roll.
 // FOOD has no prob; it is kept topped up separately.
@@ -79,6 +97,12 @@ export class GameRoom {
     this.itemSeq = 1;
     this.ratings = null;        // injected RatingStore (Phase 3)
     this.roundParticipants = []; // snakes that were spawned this round
+    // Tournament state (Phase 4).
+    this.tournamentRound = 0;
+    this.tournamentRounds = CONFIG.TOURNAMENT_ROUNDS;
+    this.tournamentPoints = new Map(); // playerId -> accumulated points
+    this.tournamentActive = false;
+    this.champion = null;
   }
 
   setMode(modeId) {
@@ -93,11 +117,14 @@ export class GameRoom {
   addPlayer(id, opts = {}) {
     const idx = this.players.size % COLORS.length;
     const name = sanitizeName(opts.name) || `SNAKE-${String(globalPlayerNum++).padStart(2, '0')}`;
+    const skin = sanitizeSkin(opts.skin);
     const player = {
       id,
       pid: opts.pid || null,   // persistent player identity (for ratings)
       name,
-      color: COLORS[idx],
+      skin: skin || { pattern: 'SOLID', color: null },
+      // A chosen skin colour overrides the auto-assigned one (team mode overrides both).
+      color: (skin && skin.color) || COLORS[idx],
       team: null,
       // Players who join mid-round spectate until the next lobby.
       spectating: this.phase !== PHASE.LOBBY,
@@ -145,7 +172,16 @@ export class GameRoom {
     if (this.phase !== PHASE.LOBBY) return;
     const players = [...this.players.values()];
     if (players.length === 0) return;
-    if (players.every((p) => p.ready)) this.startCountdown();
+    if (players.every((p) => p.ready)) {
+      if (this.mode.tournament) {
+        // Begin a fresh tournament series.
+        this.tournamentRound = 0;
+        this.tournamentPoints = new Map();
+        this.tournamentActive = true;
+        this.champion = null;
+      }
+      this.startCountdown();
+    }
   }
 
   startCountdown() {
@@ -324,7 +360,11 @@ export class GameRoom {
         break;
       case PHASE.RESULT:
         this.phaseTimer -= dt;
-        if (this.phaseTimer <= 0) this.resetToLobby();
+        if (this.phaseTimer <= 0) {
+          // In a tournament, roll straight into the next round until the series ends.
+          if (this.mode.tournament && this.tournamentActive) this.startCountdown();
+          else this.resetToLobby();
+        }
         break;
       default: break;
     }
@@ -335,6 +375,10 @@ export class GameRoom {
     this.phase = PHASE.LOBBY;
     this.items = [];
     this.roundParticipants = [];
+    this.tournamentActive = false;
+    this.tournamentRound = 0;
+    this.tournamentPoints = new Map();
+    this.champion = null;
     for (const p of this.players.values()) {
       // Spectators rejoin as normal players once we return to the lobby.
       p.ready = false; p.alive = false; p.body = []; p.spectating = false;
@@ -577,10 +621,47 @@ export class GameRoom {
       }
     }
 
+    // Tournament: award placement points and advance the series.
+    let intermission = CONFIG.RESULT_MS;
+    if (this.mode.tournament) {
+      const n = results.length;
+      for (const r of results) {
+        const pts = Math.max(0, n - r.rank + 1); // 1st gets n points, last gets 1
+        this.tournamentPoints.set(r.id, (this.tournamentPoints.get(r.id) || 0) + pts);
+        r.roundPoints = pts;
+      }
+      this.tournamentRound++;
+      if (this.tournamentRound >= this.tournamentRounds) {
+        this.tournamentActive = false;
+        const standings = this.tournamentStandings();
+        this.champion = standings[0] || null;
+      } else {
+        intermission = CONFIG.INTERMISSION_MS;
+      }
+    }
+
     this.results = results;
     this.phase = PHASE.RESULT;
-    this.phaseTimer = CONFIG.RESULT_MS;
+    this.phaseTimer = intermission;
     events.push({ type: 'ROUND_END', results });
+  }
+
+  // Tournament standings sorted by accumulated points (then last-round rank).
+  tournamentStandings() {
+    const byId = new Map((this.results || []).map((r) => [r.id, r]));
+    return [...this.tournamentPoints.entries()]
+      .map(([id, points]) => {
+        const p = this.players.get(id);
+        const r = byId.get(id);
+        return {
+          id,
+          name: p ? p.name : (r ? r.name : '???'),
+          color: p ? p.color : (r ? r.color : '#888'),
+          points,
+        };
+      })
+      .sort((a, b) => b.points - a.points)
+      .map((row, i) => ({ ...row, place: i + 1 }));
   }
 
   rankTeams(players) {
@@ -634,10 +715,17 @@ export class GameRoom {
       countdown: this.phase === PHASE.COUNTDOWN ? Math.ceil(this.phaseTimer / 1000) : 0,
       timeLeft,
       teamTotals,
+      tournament: this.mode.tournament ? {
+        round: this.tournamentRound,
+        rounds: this.tournamentRounds,
+        active: this.tournamentActive,
+        standings: this.tournamentStandings(),
+        champion: this.champion,
+      } : null,
       snakes: [...this.players.values()].map((p) => {
         const r = (this.ratings && p.pid) ? this.ratings.get(p.pid) : null;
         return {
-          id: p.id, name: p.name, color: p.color, team: p.team,
+          id: p.id, name: p.name, color: p.color, team: p.team, skin: p.skin,
           alive: p.alive, ready: p.ready, spectating: p.spectating, body: p.body,
           score: p.score, kills: p.kills, effects: this.effectsOf(p),
           rating: r ? r.rating : null,
