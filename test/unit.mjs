@@ -180,6 +180,15 @@ const room = (opts = {}) => new GameRoom('T', { map: 'VOID', bots: 0, ...opts })
   check('U19: many frogs dropped for a long snake', r.food.length - before >= 15);
 })();
 
+// U21: bots self-destruct on their life timer.
+(() => {
+  const r = room({ map: 'TUNNEL', bots: 1 }); r.addPlayer('h', { name: 'H' }); r.update(16);
+  const bot = [...r.players.values()].find((p) => p.bot);
+  check('U21: bot has a life timer', bot && bot.lifeUntil > r.clock);
+  bot.lifeUntil = r.clock + 50; r.update(120);
+  check('U21: bot self-destructed past its timer', !bot.alive && bot.respawnAt > 0);
+})();
+
 // U20: name sanitisation.
 (() => {
   check('U20: trims & caps', sanitizeName('  Snakey McSnake Face  ').length <= 16);

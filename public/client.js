@@ -85,16 +85,36 @@
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${proto}://${location.host}`);
-    ws.onopen = () => { connStatus.textContent = 'Connected. Press PLAY.'; };
-    ws.onclose = () => { connStatus.textContent = 'Disconnected. Reconnecting...'; setTimeout(connect, 1500); };
+    ws.onopen = () => {
+      connStatus.textContent = 'Connected. Press PLAY.';
+      // If we were already playing, rejoin automatically so play resumes.
+      if (lastJoin) send(lastJoin);
+    };
+    ws.onclose = () => { connStatus.textContent = 'Disconnected. Reconnecting...'; setTimeout(connect, 1200); };
     ws.onerror = () => { connStatus.textContent = 'Connection error.'; };
     ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch { return; } handle(m); };
   }
   function send(obj) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
 
+  // Show a banner when the connection drops or the server goes quiet; hide on recovery.
+  const netStatusEl = $('net-status');
+  let joined = false, lastStateMs = 0, lastJoin = null;
+  setInterval(() => {
+    if (!joined) { netStatusEl.classList.add('hidden'); return; }
+    const disconnected = !ws || ws.readyState !== WebSocket.OPEN;
+    const stale = Date.now() - lastStateMs > 2500;
+    if (disconnected || stale) {
+      netStatusEl.classList.remove('hidden');
+      netStatusEl.textContent = disconnected ? 'Connection lost — reconnecting…' : 'No response from server — reconnecting…';
+    } else { netStatusEl.classList.add('hidden'); }
+  }, 500);
+
   function handle(msg) {
-    if (msg.type === 'welcome') { myId = msg.id; setRoomCode(msg.room); showScreen('game'); resizeCanvas(); }
-    else if (msg.type === 'state') onState(msg.state);
+    if (msg.type === 'welcome') {
+      myId = msg.id; setRoomCode(msg.room); showScreen('game'); resizeCanvas();
+      joined = true; lastStateMs = Date.now();
+      if (lastJoin) lastJoin.room = msg.room; // rejoin the same room after a drop
+    } else if (msg.type === 'state') { lastStateMs = Date.now(); onState(msg.state); }
     else if (msg.type === 'event' && msg.event) {
       if (msg.event.type === 'KILL') onKill(msg.event);
       else if (msg.event.type === 'GEM' && msg.event.player === myId) sound.gem();
@@ -104,7 +124,8 @@
   $('btn-play').addEventListener('click', () => {
     localStorage.setItem('naga_name', myName());
     sound.resume();
-    send({ type: 'join', room: chosenRoom(), map: chosenMap, bots: chosenBots, classic: chosenClassic, pid: myPid, name: myName() });
+    lastJoin = { type: 'join', room: chosenRoom(), map: chosenMap, bots: chosenBots, classic: chosenClassic, pid: myPid, name: myName() };
+    send(lastJoin);
   });
   $('btn-copy').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(location.href); $('btn-copy').textContent = 'Copied!'; }
@@ -291,37 +312,28 @@
   }
 
   // A top-down frog facing +x locally; rotated by `ang` so its heading reads.
+  // Legs are rounded haunches and round feet (cute, not insect-like).
   function drawFrog(g, cx, cy, r, t, ang) {
-    const green = '#3fbf63', dark = '#268a47', light = '#79e893';
+    const green = '#3fbf63', dark = '#2c9b50', light = '#79e893';
     g.save();
     g.translate(cx, cy + Math.sin(t / 300) * r * 0.05);
     g.rotate(ang || 0);
-    g.lineCap = 'round'; g.lineJoin = 'round';
-    // Long bent hind legs splayed at the back (thigh out-back, shin forward).
-    g.strokeStyle = dark; g.lineWidth = r * 0.34;
+    // Rounded hind haunches tucked at the back, with a round foot each.
+    g.fillStyle = dark;
     for (const sy of [-1, 1]) {
-      g.beginPath();
-      g.moveTo(-r * 0.15, sy * r * 0.42);
-      g.lineTo(-r * 1.05, sy * r * 1.05);
-      g.lineTo(-r * 0.05, sy * r * 1.3);
-      g.stroke();
-      g.fillStyle = dark; // webbed foot
-      g.beginPath(); g.ellipse(-r * 0.05, sy * r * 1.3, r * 0.3, r * 0.16, sy * 0.6, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.ellipse(-r * 0.42, sy * r * 0.6, r * 0.52, r * 0.42, sy * 0.5, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(-r * 0.02, sy * r * 0.86, r * 0.22, 0, Math.PI * 2); g.fill();
     }
-    // Small front legs.
-    g.strokeStyle = dark; g.lineWidth = r * 0.2;
-    for (const sy of [-1, 1]) {
-      g.beginPath(); g.moveTo(r * 0.55, sy * r * 0.35); g.lineTo(r * 1.0, sy * r * 0.72); g.stroke();
-      g.fillStyle = dark; g.beginPath(); g.arc(r * 1.0, sy * r * 0.72, r * 0.13, 0, Math.PI * 2); g.fill();
-    }
+    // Small round front feet.
+    for (const sy of [-1, 1]) { g.beginPath(); g.arc(r * 0.82, sy * r * 0.5, r * 0.2, 0, Math.PI * 2); g.fill(); }
     // Body.
-    g.fillStyle = green; g.beginPath(); g.ellipse(0, 0, r * 1.05, r * 0.78, 0, 0, Math.PI * 2); g.fill();
-    g.fillStyle = light; g.beginPath(); g.ellipse(r * 0.15, 0, r * 0.6, r * 0.42, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = green; g.beginPath(); g.ellipse(0, 0, r * 1.0, r * 0.82, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = light; g.beginPath(); g.ellipse(r * 0.12, 0, r * 0.55, r * 0.45, 0, 0, Math.PI * 2); g.fill();
     // Bulging eyes at the front (pupils forward to show the heading).
     for (const sy of [-1, 1]) {
-      g.fillStyle = green; g.beginPath(); g.arc(r * 0.62, sy * r * 0.52, r * 0.36, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#f4fff8'; g.beginPath(); g.arc(r * 0.66, sy * r * 0.52, r * 0.25, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#0a1f10'; g.beginPath(); g.arc(r * 0.78, sy * r * 0.52, r * 0.12, 0, Math.PI * 2); g.fill();
+      g.fillStyle = green; g.beginPath(); g.arc(r * 0.6, sy * r * 0.5, r * 0.34, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#f4fff8'; g.beginPath(); g.arc(r * 0.64, sy * r * 0.5, r * 0.24, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#0a1f10'; g.beginPath(); g.arc(r * 0.76, sy * r * 0.5, r * 0.11, 0, Math.PI * 2); g.fill();
     }
     g.restore();
   }

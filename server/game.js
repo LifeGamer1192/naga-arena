@@ -11,7 +11,7 @@ export const CONFIG = {
   SPEED: 6.8, TURN: 3.6, SPACING: 0.45, BODY_RADIUS: 0.46, FOOD_RADIUS: 0.85,
   START_LEN: 5, GROW: 1.4, RESPAWN_MS: 3000, FOOD_DENSITY: 0.03,
   DEFAULT_MAP: 'TUNNEL', MAX_PLAYERS: 12,
-  BOTS_DEFAULT: 1, BOTS_MAX: 8,
+  BOTS_DEFAULT: 1, BOTS_MAX: 8, BOT_LIFE_MS: 180000, // bots self-destruct every 3 min so they don't get too big
   // Frog wandering (hops twice as far, 1.5x as often).
   FROG_STEP_MS: 2000, FROG_TURN_MS: 10000, FROG_STEP: 1.8,
   // Special gems.
@@ -144,6 +144,7 @@ export class GameRoom {
     const s = this.randOpenCell();
     p.hx = s.x; p.hy = s.y; p.ang = Math.random() * Math.PI * 2; p.targetAng = p.ang;
     p.bodyLen = CONFIG.START_LEN; p.alive = true; p.respawnAt = 0;
+    if (p.bot) p.lifeUntil = this.clock + CONFIG.BOT_LIFE_MS;
     p.eff = { vacuum: 0, giant: 0, poisonGas: 0, poisoned: 0 };
     p.trail = [];
     const dx = Math.cos(p.ang) * CONFIG.SPACING, dy = Math.sin(p.ang) * CONFIG.SPACING;
@@ -217,6 +218,9 @@ export class GameRoom {
 
     // Respawns.
     for (const p of this.players.values()) if (!p.alive && p.respawnAt && this.clock >= p.respawnAt) this.spawn(p);
+
+    // Bots self-destruct on a timer so they can't snowball and ruin the room.
+    for (const p of this.players.values()) if (p.bot && p.alive && p.lifeUntil && this.clock >= p.lifeUntil) this.kill(p, null, events);
 
     // Frogs wander (unless classic).
     if (!this.classic) {
