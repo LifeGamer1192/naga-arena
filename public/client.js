@@ -263,7 +263,7 @@
       ctx.save();
       ctx.translate(off.ox * Wpx, off.oy * Hpx);
       if (!map.tunnel) drawWalls(map, cell);
-      for (const c of (state.poison || [])) drawPoison(c.x * cell, c.y * cell, cell, now);
+      for (const c of (state.poison || [])) drawPoison(c, cell, now);
       for (const f of state.food) drawFood(f, cell, now);
       ctx.restore();
     }
@@ -359,11 +359,18 @@
     g.restore();
   }
 
-  function drawPoison(x, y, cell, t) {
-    const r = cell * (0.85 + 0.1 * Math.sin(t / 200 + x));
-    g_fillGlow(x, y, r, 'rgba(124,252,58,0.18)');
+  // A fast poison bolt drawn as a glowing streak pointing the way it travels.
+  function drawPoison(c, cell, t) {
+    const x = c.x * cell, y = c.y * cell;
+    const ang = Math.atan2(c.vy || 0, c.vx || 1);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+    ctx.shadowColor = '#7cfc3a'; ctx.shadowBlur = cell * 0.8;
+    ctx.fillStyle = 'rgba(124,252,58,0.5)';
+    ctx.beginPath(); ctx.ellipse(-cell * 0.25, 0, cell * 0.95, cell * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(210,255,150,0.9)';
+    ctx.beginPath(); ctx.ellipse(cell * 0.25, 0, cell * 0.34, cell * 0.3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0; ctx.restore();
   }
-  function g_fillGlow(x, y, r, color) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
 
   // Unwrap a tunnel-wrapped body into one continuous polyline (relative to the
   // head) so the connected renderer never has to split across the seam.

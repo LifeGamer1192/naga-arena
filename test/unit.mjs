@@ -154,13 +154,25 @@ const room = (opts = {}) => new GameRoom('T', { map: 'VOID', bots: 0, ...opts })
   const r = room({ map: 'TUNNEL' });
   const b = r.addPlayer('b', { name: 'B' });
   b.hx = 8; b.hy = 8;
-  r.poison = [{ x: 8, y: 8, until: r.clock + 5000 }];
+  r.poison = [{ x: 8, y: 8, vx: 0, vy: 0, until: r.clock + 5000 }];
   r.update(16);
   check('U17: touching poison poisons you', b.eff.poisoned > r.clock);
   check('U17: poisoned snakes are slowed 25%', Math.abs(r.speedMult(b) - CONFIG.POISON_SLOW) < 1e-9);
   const a = r.addPlayer('a', { name: 'A' }); a.hx = 8; a.hy = 8; a.eff.poisonGas = 1e9; a.eff.poisoned = 0;
-  r.poison = [{ x: 8, y: 8, until: r.clock + 5000 }]; r.update(16);
+  r.poison = [{ x: 8, y: 8, vx: 0, vy: 0, until: r.clock + 5000 }]; r.update(16);
   check('U17: gas carriers are immune to poison', a.eff.poisoned === 0);
+})();
+
+// U25: poison gas fires fast projectiles forward.
+(() => {
+  const r = room({ map: 'TUNNEL' }); const p = r.addPlayer('a', { name: 'A' });
+  p.hx = 10; p.hy = 10; p.ang = 0; p.targetAng = 0; p.eff.poisonGas = 1e9; p.poisonEmitAt = 0;
+  r.update(50);
+  check('U25: a poison bolt was emitted', r.poison.length >= 1);
+  const c = r.poison[0];
+  check('U25: bolt flies forward (+x) fast', c.vx > 5);
+  const x0 = c.x; r.update(50);
+  check('U25: bolt advanced forward', c.x > x0);
 })();
 
 // U18: classic mode makes your own tail lethal.

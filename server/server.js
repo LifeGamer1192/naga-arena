@@ -38,6 +38,43 @@ const wss = new WebSocketServer({ server });
 
 const clients = new Map(); // id -> { ws, roomCode }
 
+// Lightweight in-memory activity history for the admin screen (last ~24h).
+// No names or PII are stored — only counts. Resets if the process restarts.
+const DAY_MS = 24 * 3600 * 1000;
+function countHumans() { let n = 0; for (const c of clients.values()) if (c.roomCode) n++; return n; }
+function countBots() { let n = 0; for (const r of manager.rooms.values()) for (const p of r.players.values()) if (p.bot) n++; return n; }
+const history = {
+  samples: [], events: [],
+  prune() {
+    const cut = Date.now() - DAY_MS;
+    while (this.samples.length && this.samples[0].t < cut) this.samples.shift();
+    while (this.events.length && this.events[0].t < cut) this.events.shift();
+  },
+  record(type) { this.events.push({ t: Date.now(), type }); this.prune(); },
+  sample() { this.samples.push({ t: Date.now(), humans: countHumans(), rooms: manager.rooms.size, bots: countBots() }); this.prune(); },
+  dump() {
+    this.prune();
+    const joins = this.events.filter((e) => e.type === 'join').length;
+    const leaves = this.events.filter((e) => e.type === 'leave').length;
+    const peak = this.samples.reduce((m, s) => Math.max(m, s.humans), 0);
+    return {
+      now: Date.now(), windowHours: 24,
+      current: { humans: countHumans(), rooms: manager.rooms.size, bots: countBots() },
+      joins24h: joins, leaves24h: leaves, peakHumans24h: peak,
+      samples: this.samples,
+    };
+  },
+};
+setInterval(() => history.sample(), 60000);
+history.sample();
+
+function adminOk(req) { const t = process.env.ADMIN_TOKEN; return !t || req.query.token === t; }
+app.get('/api/admin/history', (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: 'forbidden' });
+  res.json(history.dump());
+});
+app.get('/admin', (req, res) => res.redirect('/admin.html' + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '')));
+
 function send(ws, type, data) { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type, ...data })); }
 function broadcast(code, type, data) {
   const msg = JSON.stringify({ type, ...data });
@@ -57,6 +94,7 @@ wss.on('connection', (ws) => {
         const room = manager.getOrCreate(msg.room, { map: msg.map, bots: msg.bots, classic: msg.classic });
         client.roomCode = room.code;
         const player = room.addPlayer(id, { pid: msg.pid, name: msg.name });
+        history.record('join'); history.sample(); // capture concurrency at join time
         send(ws, 'welcome', { id, room: room.code, you: { name: player.name, color: player.color } });
         break;
       }
@@ -77,6 +115,7 @@ wss.on('connection', (ws) => {
     if (client && client.roomCode) {
       const room = manager.rooms.get(client.roomCode);
       if (room) room.removePlayer(id);
+      history.record('leave');
     }
     clients.delete(id);
   };

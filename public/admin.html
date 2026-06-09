@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>NAGA ARENA — Admin</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #05060a; color: #e8f0ff; font-family: "Segoe UI", system-ui, sans-serif; padding: 24px; }
+    h1 { font-size: 22px; letter-spacing: 2px; color: #39ff14; margin-bottom: 4px; }
+    .sub { color: #7f8aa3; font-size: 13px; margin-bottom: 20px; }
+    .cards { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+    .card { background: #0e1320; border: 1px solid #1c2840; border-radius: 10px; padding: 14px 18px; min-width: 120px; }
+    .card .k { color: #7f8aa3; font-size: 12px; letter-spacing: 1px; }
+    .card .v { font-size: 26px; font-weight: 800; color: #e8f0ff; }
+    .card .v.accent { color: #39ff14; }
+    .panel { background: #0e1320; border: 1px solid #1c2840; border-radius: 10px; padding: 16px; margin-bottom: 18px; }
+    .panel h2 { font-size: 14px; letter-spacing: 1px; color: #9aa0a6; margin-bottom: 10px; }
+    canvas { width: 100%; height: 220px; display: block; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: right; padding: 5px 10px; border-bottom: 1px solid #1c2840; }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: #7f8aa3; font-weight: 600; }
+    .err { color: #ff6482; }
+    .muted { color: #7f8aa3; font-size: 12px; }
+    a { color: #64d2ff; }
+  </style>
+</head>
+<body>
+  <h1>NAGA ARENA — ADMIN</h1>
+  <p class="sub">Activity over the last 24 hours. <a href="/">&larr; back to game</a></p>
+  <div id="status" class="muted"></div>
+  <div id="cards" class="cards"></div>
+  <div class="panel">
+    <h2>CONCURRENT PLAYERS (24h)</h2>
+    <canvas id="chart" width="900" height="220"></canvas>
+    <p class="muted" id="chart-note"></p>
+  </div>
+  <div class="panel">
+    <h2>RECENT SAMPLES (newest first)</h2>
+    <table id="table"><thead><tr><th>time</th><th>players</th><th>rooms</th><th>bots</th></tr></thead><tbody></tbody></table>
+  </div>
+  <script src="admin.js"></script>
+</body>
+</html>

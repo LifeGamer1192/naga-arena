@@ -19,7 +19,7 @@ export const CONFIG = {
   // Status effects.
   VACUUM_MS: 20000, VACUUM_RADIUS: 5, VACUUM_PULL: 9,
   GIANT_MS: 10000, GIANT_SCALE: 2,
-  POISONGAS_MS: 30000, POISON_EMIT_MS: 350, POISON_RADIUS: 1.5, POISON_LIFE: 2600,
+  POISONGAS_MS: 30000, POISON_EMIT_MS: 200, POISON_SPEED: 15, POISON_RADIUS: 0.75, POISON_LIFE: 1500,
   POISONED_MS: 8000, POISON_SLOW: 0.75,
 };
 
@@ -296,14 +296,18 @@ export class GameRoom {
       }
     }
 
-    // Poison gas: emit clouds and infect snakes that touch them.
+    // Poison gas: fire fast poison projectiles straight ahead.
     for (const p of this.players.values()) {
       if (!p.alive || !(p.eff.poisonGas && this.clock < p.eff.poisonGas)) continue;
       if (this.clock >= p.poisonEmitAt) {
         p.poisonEmitAt = this.clock + CONFIG.POISON_EMIT_MS;
-        const a = Math.random() * Math.PI * 2, r = Math.random() * 1.2;
-        this.poison.push({ x: p.hx + Math.cos(a) * r, y: p.hy + Math.sin(a) * r, until: this.clock + CONFIG.POISON_LIFE });
+        this.poison.push({ x: p.hx, y: p.hy, vx: Math.cos(p.ang) * CONFIG.POISON_SPEED, vy: Math.sin(p.ang) * CONFIG.POISON_SPEED, until: this.clock + CONFIG.POISON_LIFE });
       }
+    }
+    for (const c of this.poison) {
+      c.x += (c.vx || 0) * step; c.y += (c.vy || 0) * step;
+      if (this.map.tunnel) { c.x = (c.x % this.map.w + this.map.w) % this.map.w; c.y = (c.y % this.map.h + this.map.h) % this.map.h; }
+      else if (c.x < 0 || c.y < 0 || c.x >= this.map.w || c.y >= this.map.h) c.until = 0;
     }
     this.poison = this.poison.filter((c) => c.until > this.clock);
     const pr2 = CONFIG.POISON_RADIUS * CONFIG.POISON_RADIUS;
@@ -419,7 +423,7 @@ export class GameRoom {
       food: this.food.map((f) => f.kind === 'FROG'
         ? { id: f.id, kind: 'FROG', x: +f.x.toFixed(2), y: +f.y.toFixed(2), ang: +f.ang.toFixed(2) }
         : { id: f.id, kind: f.kind, x: +f.x.toFixed(2), y: +f.y.toFixed(2), color: SPECIALS[f.kind].color }),
-      poison: this.poison.map((c) => ({ x: +c.x.toFixed(2), y: +c.y.toFixed(2) })),
+      poison: this.poison.map((c) => ({ x: +c.x.toFixed(2), y: +c.y.toFixed(2), vx: +(c.vx || 0).toFixed(2), vy: +(c.vy || 0).toFixed(2) })),
     };
   }
 }

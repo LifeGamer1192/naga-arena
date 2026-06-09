@@ -31,8 +31,8 @@ final: you respawn after a short countdown and keep playing until you leave.
   countdown):
   - **Vacuum** (20s) — pulls nearby food toward you.
   - **Giant** (10s) — your head doubles in size (and reach).
-  - **Poison Gas** (30s) — you're immune and trail poison; other snakes that touch
-    it are poisoned and slowed 25% for 8s.
+  - **Poison Gas** (30s) — you're immune and fire fast poison bolts straight
+    ahead; snakes hit by one are poisoned and slowed 25% for 8s.
 - **Classic mode**: traditional rules — your own tail is lethal, frogs stay still
   and gems are rare.
 - **4 maps** (default **TUNNEL**): VOID, LABYRINTH, TUNNEL (wrap-around edges),
@@ -111,6 +111,14 @@ npm test            # deterministic unit tests + headless render harness
 # headless end-to-end (server must be running on :3000)
 node test/smoke.mjs                 # VOID: chase frogs + verify respawn
 ```
+
+## Admin screen
+
+`/admin` (or `/admin.html`) shows in-memory activity from the last ~24h:
+current/peak players, rooms, bots, joins/leaves and a concurrency chart. Data is
+counts only (no names) and resets if the process restarts. Protect it by setting
+the `ADMIN_TOKEN` env var, then open `/admin?token=YOUR_TOKEN`
+(`fly secrets set ADMIN_TOKEN=...`). If unset, the screen is open.
 
 ## Deploy (Fly.io)
 
