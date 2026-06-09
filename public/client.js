@@ -257,13 +257,23 @@
 
     drawGrid(map, cell, camX, camY);
 
-    const offsets = map.tunnel ? wrapOffsets(map, cell, camX, camY) : [{ ox: 0, oy: 0 }];
-    for (const off of offsets) {
+    // Points (walls/poison/food) live in [0,W); camera-culled wrap copies suffice.
+    const ptOffsets = map.tunnel ? wrapOffsets(map, cell, camX, camY) : [{ ox: 0, oy: 0 }];
+    for (const off of ptOffsets) {
       ctx.save();
       ctx.translate(off.ox * Wpx, off.oy * Hpx);
       if (!map.tunnel) drawWalls(map, cell);
       for (const c of (state.poison || [])) drawPoison(c.x * cell, c.y * cell, cell, now);
       for (const f of state.food) drawFood(f, cell, now);
+      ctx.restore();
+    }
+    // Snakes are drawn at ALL wrap copies on tunnel maps: an unwrapped body's
+    // tail can sit outside [0,W), so camera-based culling would drop it (the
+    // "enemy rear flickers / invisible" bug).
+    const krange = map.tunnel ? [-1, 0, 1] : [0];
+    for (const ox of krange) for (const oy of krange) {
+      ctx.save();
+      ctx.translate(ox * Wpx, oy * Hpx);
       for (const s of state.snakes) drawSnake(s, cell, s.id === myId, map);
       ctx.restore();
     }
