@@ -53,10 +53,13 @@
   nameInput.value = localStorage.getItem('naga_name') || '';
   function myName() { return (nameInput.value || '').trim(); }
 
-  function roomFromUrl() {
-    const m = new URLSearchParams(location.search).get('room');
-    return m ? m.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) : '';
-  }
+  const roomInput = $('room-input');
+  function normRoom(v) { return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8); }
+  function roomFromUrl() { return normRoom(new URLSearchParams(location.search).get('room')); }
+  // Prefer a typed code, fall back to the URL's ?room=.
+  function chosenRoom() { return normRoom(roomInput.value) || roomFromUrl(); }
+  roomInput.value = roomFromUrl();
+  roomInput.addEventListener('input', () => { roomInput.value = normRoom(roomInput.value); });
   function setRoomCode(code) {
     const url = new URL(location.href); url.searchParams.set('room', code);
     history.replaceState(null, '', url.toString());
@@ -101,7 +104,7 @@
   $('btn-play').addEventListener('click', () => {
     localStorage.setItem('naga_name', myName());
     sound.resume();
-    send({ type: 'join', room: roomFromUrl(), map: chosenMap, bots: chosenBots, classic: chosenClassic, pid: myPid, name: myName() });
+    send({ type: 'join', room: chosenRoom(), map: chosenMap, bots: chosenBots, classic: chosenClassic, pid: myPid, name: myName() });
   });
   $('btn-copy').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(location.href); $('btn-copy').textContent = 'Copied!'; }
