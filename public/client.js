@@ -402,25 +402,21 @@
     }
   }
 
-  // Connected snake with eyes; splits on big gaps (tunnel seam).
+  // Connected snake with eyes. The body is pre-unwrapped (continuous), so it is
+  // drawn as a single polyline — no run-splitting (which used to break the body
+  // wherever the point spacing happened to exceed a fixed threshold).
   function renderSnake(g, pts, color, cell, glow, headScale) {
     headScale = headScale || 1;
     const w = cell * 0.82;
     const C = (p) => ({ x: p.x * cell, y: p.y * cell });
-    const runs = []; let run = [pts[0]];
-    for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1], b = pts[i];
-      if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) > 2.5) { runs.push(run); run = [b]; }
-      else run.push(b);
-    }
-    runs.push(run);
     g.lineCap = 'round'; g.lineJoin = 'round';
     if (glow) { g.shadowColor = color; g.shadowBlur = cell * 0.9; }
     g.strokeStyle = color; g.fillStyle = color; g.lineWidth = w;
-    for (const r of runs) {
-      if (r.length === 1) { const c = C(r[0]); g.beginPath(); g.arc(c.x, c.y, w / 2, 0, Math.PI * 2); g.fill(); continue; }
-      g.beginPath(); const p0 = C(r[0]); g.moveTo(p0.x, p0.y);
-      for (let i = 1; i < r.length; i++) { const c = C(r[i]); g.lineTo(c.x, c.y); }
+    if (pts.length === 1) {
+      const c = C(pts[0]); g.beginPath(); g.arc(c.x, c.y, w / 2, 0, Math.PI * 2); g.fill();
+    } else {
+      g.beginPath(); const p0 = C(pts[0]); g.moveTo(p0.x, p0.y);
+      for (let i = 1; i < pts.length; i++) { const c = C(pts[i]); g.lineTo(c.x, c.y); }
       g.stroke();
     }
     g.shadowBlur = 0;
@@ -431,7 +427,7 @@
     g.fillStyle = color; g.beginPath(); g.arc(head.x, head.y, hw * 0.62, 0, Math.PI * 2); g.fill();
     g.shadowBlur = 0;
     let dx = 1, dy = 0;
-    if (pts.length > 1) { const ddx = pts[0].x - pts[1].x, ddy = pts[0].y - pts[1].y; if ((Math.abs(ddx) + Math.abs(ddy)) <= 2.5 && (ddx || ddy)) { dx = ddx; dy = ddy; } }
+    if (pts.length > 1) { const ddx = pts[0].x - pts[1].x, ddy = pts[0].y - pts[1].y; if ((Math.abs(ddx) + Math.abs(ddy)) <= 8 && (ddx || ddy)) { dx = ddx; dy = ddy; } }
     const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
     const px = -dy, py = dx, eo = hw * 0.27, ef = hw * 0.18;
     for (const sgn of [1, -1]) {
