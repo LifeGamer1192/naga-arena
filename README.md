@@ -2,6 +2,10 @@
 
 ブラウザで即座に遊べる、リアルタイム対戦ヘビゲーム。サーバー権威方式（ゲームロジックは全てサーバーで処理）。
 
+> **🎮 ライブデモ: https://naga-arena.fly.dev/**
+> 友達とURLを共有して、複数端末で開けばそのまま対戦できます。
+> （アイドル時はマシンが停止するため、最初のアクセスは数秒の起動待ちが入ることがあります）
+
 > **Phase 1 (MVP)** — このリポジトリの現在地点。
 > WebSocket接続 / Battle Royale モードのみ / フードのみ。
 
@@ -68,6 +72,16 @@ naga_arena/
     ├── style.css
     └── client.js   # WebSocketクライアント・Canvas描画・入力
 ```
+
+## デプロイ（Fly.io）
+
+```bash
+fly apps create naga-arena      # 初回のみ
+fly deploy --ha=false --remote-only
+```
+
+`fly.toml` は **単一マシン構成**にしています（Phase 1 のゲームルームはサーバーのメモリ上にあり、
+全プレイヤーが同一インスタンスに接続する必要があるため）。マルチノード共有は Phase 2（Redis）の範囲です。
 
 ## ロードマップ
 

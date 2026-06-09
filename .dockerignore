@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log*
+.git
+.gitignore
+test
+docs
+README.md
+*.md
+NAGA ARENA *.md
+.env
+.env.local
+.DS_Store
+.fly

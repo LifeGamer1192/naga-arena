@@ -1,0 +1,33 @@
+# NAGA ARENA - Fly.io config (Phase 1 MVP)
+# Single machine on purpose: the game room is in-memory, so all players
+# must hit the same instance (multi-node sharing is Phase 2 via Redis).
+app = "naga-arena"
+primary_region = "nrt"  # Tokyo
+
+[build]
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  # Keep everyone on one machine so they share the same room.
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 200
+    soft_limit = 200
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "5s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
