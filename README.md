@@ -36,6 +36,9 @@ A browser-based, real-time multiplayer snake game with an authoritative server
 - **4 maps**: VOID (open), LABYRINTH (maze walls), TUNNEL (wrap-around edges),
   ARENA (central coliseum with periodic obstacles).
 - **7 items**: Food, Super Food, Speed Up, Shrink, Shield, Freeze Bomb, Ghost.
+- **Polished Canvas visuals**: smoothly interpolated motion, connected snake
+  bodies with directional eyes, glow/bloom, particle effects (eat sparkles,
+  death bursts), beveled walls, item glow, and a subtle death screen-shake.
 - **Real-time sync** over WebSocket, broadcasting state at 20 ticks/sec.
 - **Desktop & mobile**: arrow keys / WASD, or swipe / on-screen D-pad.
 - **Production hardening**: security headers (CSP, nosniff, frame options).

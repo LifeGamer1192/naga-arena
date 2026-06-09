@@ -68,6 +68,14 @@
   let lastState = null, killFeed = [], cell = 16, prevPhase = null;
   const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
+  // ---- graphics state ----
+  const particles = [];
+  const smoothBodies = new Map(); // snake id -> [{x,y}] eased render positions
+  const prevMeta = new Map();     // snake id -> { score, alive } for FX triggers
+  let shakeT = 0, shakeMag = 0;   // screen-shake decay timer / magnitude
+  let bgGradient = null;          // cached vignette, rebuilt on resize
+  let lastFrame = Date.now();
+
   // Persistent identity for ratings (no account system).
   function loadPid() {
     let pid = localStorage.getItem('naga_pid');
@@ -208,7 +216,7 @@
     const cs = 24, n = 11;
     const body = [];
     for (let i = 0; i < n; i++) body.push({ x: n - i, y: 1 }); // head at the right
-    paintSnake(g, body, mySkin, cs, true);
+    renderSnake(g, body, mySkin, cs, { glow: mySkin.pattern === 'NEON', head: true, dir: { x: 1, y: 0 } });
   }
   buildCustomize();
   $('btn-customize').addEventListener('click', () => { showScreen('customize'); refreshCustomize(); });
@@ -439,52 +447,53 @@
     cell = Math.max(6, Math.floor(Math.min(maxW / map.w, maxH / map.h)));
     canvas.width = map.w * cell;
     canvas.height = map.h * cell;
+    const g = ctx.createRadialGradient(
+      canvas.width / 2, canvas.height / 2, canvas.height * 0.2,
+      canvas.width / 2, canvas.height / 2, canvas.height * 0.75);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(0,0,0,0.55)');
+    bgGradient = g;
   }
 
   // ---- render loop ----
   function draw() {
     requestAnimationFrame(draw);
+    const now = Date.now();
+    const dt = Math.min(2, (now - lastFrame) / 16.67); // frames elapsed (capped)
+    lastFrame = now;
     if (!lastState) return;
     const state = lastState;
     if (state.phase !== 'PLAYING' && state.phase !== 'COUNTDOWN') return;
     const map = state.map;
 
-    ctx.fillStyle = '#070b14';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // Background.
+    ctx.fillStyle = '#060912';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Grid.
-    ctx.strokeStyle = 'rgba(28,40,64,0.5)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x <= map.w; x++) { ctx.beginPath(); ctx.moveTo(x * cell + 0.5, 0); ctx.lineTo(x * cell + 0.5, canvas.height); ctx.stroke(); }
-    for (let y = 0; y <= map.h; y++) { ctx.beginPath(); ctx.moveTo(0, y * cell + 0.5); ctx.lineTo(canvas.width, y * cell + 0.5); ctx.stroke(); }
+    triggerSnakeFx(state); // eat sparkles / death bursts from state diffs
 
-    // Tunnel edge hint.
-    if (map.tunnel) {
-      ctx.strokeStyle = 'rgba(100,210,255,0.6)';
-      ctx.setLineDash([6, 6]); ctx.lineWidth = 2;
-      ctx.strokeRect(1, 1, canvas.width - 2, canvas.height - 2);
-      ctx.setLineDash([]);
+    ctx.save();
+    if (shakeT > 0) {
+      shakeT -= dt;
+      const m = shakeMag * Math.max(0, shakeT);
+      ctx.translate((Math.random() - 0.5) * m, (Math.random() - 0.5) * m);
     }
 
-    // Static + dynamic walls.
-    ctx.fillStyle = '#243250';
-    for (const w of map.walls) fillCell(w.x, w.y, 0);
-    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 250);
-    ctx.fillStyle = `rgba(255,159,10,${0.5 + 0.4 * pulse})`;
-    for (const w of (map.dynamic || [])) fillCell(w.x, w.y, 0);
+    drawGrid(map, now);
+    drawWalls(map, now);
+    for (const it of state.items) drawItem(it, now);
+    for (const s of state.snakes) drawSnake(s, map);
+    updateDrawParticles(dt);
 
-    // Items.
-    for (const it of state.items) drawItem(it);
-
-    // Snakes.
-    for (const s of state.snakes) drawSnake(s);
+    ctx.restore();
+    if (bgGradient) { ctx.fillStyle = bgGradient; ctx.fillRect(0, 0, canvas.width, canvas.height); }
 
     // Countdown overlay.
     if (state.phase === 'COUNTDOWN' && state.countdown > 0) { countdownEl.classList.remove('hidden'); countdownEl.textContent = state.countdown; }
     else countdownEl.classList.add('hidden');
 
-    // Spectating overlay: shown while watching (dead in elimination modes,
-    // or joined mid-round) during PLAYING.
+    // Spectating overlay.
     const mine = state.snakes.find((s) => s.id === myId);
     const spectating = state.phase === 'PLAYING' && mine && (mine.spectating || !mine.alive);
     spectatingEl.classList.toggle('hidden', !spectating);
@@ -500,66 +509,212 @@
     renderHud(state);
   }
 
-  function fillCell(x, y, pad) { ctx.fillRect(x * cell + pad, y * cell + pad, cell - pad * 2, cell - pad * 2); }
+  function drawGrid(map, now) {
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(40,60,96,0.35)';
+    ctx.beginPath();
+    for (let x = 0; x <= map.w; x++) { ctx.moveTo(x * cell + 0.5, 0); ctx.lineTo(x * cell + 0.5, canvas.height); }
+    for (let y = 0; y <= map.h; y++) { ctx.moveTo(0, y * cell + 0.5); ctx.lineTo(canvas.width, y * cell + 0.5); }
+    ctx.stroke();
+    if (map.tunnel) {
+      const a = 0.4 + 0.3 * Math.sin(now / 300);
+      ctx.strokeStyle = `rgba(100,210,255,${a})`;
+      ctx.setLineDash([8, 6]); ctx.lineWidth = 3;
+      ctx.strokeRect(1.5, 1.5, canvas.width - 3, canvas.height - 3);
+      ctx.setLineDash([]);
+    }
+  }
 
-  function drawItem(it) {
+  function drawWalls(map, now) {
+    for (const w of map.walls) {
+      ctx.fillStyle = '#26344f';
+      roundRect(w.x * cell, w.y * cell, cell, cell, Math.max(2, cell * 0.18));
+      ctx.fillStyle = 'rgba(90,120,170,0.5)'; // top-left bevel
+      roundRect(w.x * cell + cell * 0.12, w.y * cell + cell * 0.12, cell * 0.45, cell * 0.45, 2);
+    }
+    const pulse = 0.5 + 0.5 * Math.sin(now / 220);
+    for (const w of (map.dynamic || [])) {
+      ctx.shadowColor = '#ff9f0a'; ctx.shadowBlur = cell * 0.6;
+      ctx.fillStyle = `rgba(255,159,10,${0.5 + 0.4 * pulse})`;
+      roundRect(w.x * cell + 1, w.y * cell + 1, cell - 2, cell - 2, Math.max(2, cell * 0.2));
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  function drawItem(it, now) {
     const style = ITEM_STYLE[it.type] || ITEM_STYLE.FOOD;
-    const cx = it.x * cell + cell / 2, cy = it.y * cell + cell / 2, r = cell / 2 - cell * 0.15;
-    const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 200 + it.id);
-    ctx.fillStyle = style.color;
-    ctx.globalAlpha = it.type === 'FOOD' ? 0.7 + 0.3 * pulse : 0.85;
+    const cx = it.x * cell + cell / 2, cy = it.y * cell + cell / 2;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 200 + it.id);
+    ctx.shadowColor = style.color;
+    ctx.shadowBlur = cell * (0.4 + 0.4 * pulse);
     if (it.type === 'FOOD') {
+      const r = cell * (0.3 + 0.05 * pulse);
+      const grad = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r);
+      grad.addColorStop(0, '#ffd0d6'); grad.addColorStop(1, style.color);
+      ctx.fillStyle = grad;
       ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
     } else {
-      // Rounded square badge with a letter.
-      roundRect(it.x * cell + 2, it.y * cell + 2, cell - 4, cell - 4, 3);
-      ctx.globalAlpha = 1;
+      // Spinning rounded badge with a glow and a letter.
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(Math.sin(now / 600 + it.id) * 0.25);
+      ctx.fillStyle = style.color;
+      roundRect(-cell * 0.36, -cell * 0.36, cell * 0.72, cell * 0.72, cell * 0.18);
+      ctx.shadowBlur = 0;
       ctx.fillStyle = '#05060a';
-      ctx.font = `bold ${Math.max(8, Math.floor(cell * 0.6))}px monospace`;
+      ctx.font = `bold ${Math.max(8, Math.floor(cell * 0.55))}px monospace`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      if (style.label) ctx.fillText(style.label, cx, cy + 0.5);
+      if (style.label) ctx.fillText(style.label, 0, 1);
+      ctx.restore();
     }
-    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
   }
 
-  function drawSnake(s) {
-    if (!s.body || s.body.length === 0) return;
+  // Ease the rendered body toward the authoritative one for smooth motion.
+  function smoothBody(s, map) {
+    const target = s.body;
+    let arr = smoothBodies.get(s.id);
+    if (!arr || !s.alive || arr.length === 0) {
+      arr = target.map((p) => ({ x: p.x, y: p.y }));
+      smoothBodies.set(s.id, arr);
+      return arr;
+    }
+    while (arr.length < target.length) arr.push({ ...arr[arr.length - 1] });
+    if (arr.length > target.length) arr.length = target.length;
+    const k = 0.4;
+    for (let i = 0; i < target.length; i++) {
+      const t = target[i], a = arr[i];
+      let dx = t.x - a.x, dy = t.y - a.y;
+      if (map.tunnel) {
+        if (dx > map.w / 2) dx -= map.w; else if (dx < -map.w / 2) dx += map.w;
+        if (dy > map.h / 2) dy -= map.h; else if (dy < -map.h / 2) dy += map.h;
+      }
+      if (Math.abs(dx) > 2.2 || Math.abs(dy) > 2.2) { a.x = t.x; a.y = t.y; }
+      else {
+        a.x += dx * k; a.y += dy * k;
+        if (map.tunnel) { a.x = (a.x + map.w) % map.w; a.y = (a.y + map.h) % map.h; }
+      }
+    }
+    return arr;
+  }
+
+  function drawSnake(s, map) {
+    if (!s.body || s.body.length === 0) { smoothBodies.delete(s.id); return; }
     const fx = s.effects || {};
-    ctx.globalAlpha = s.alive ? (fx.ghost ? 0.45 : 1) : 0.3;
+    const pts = smoothBody(s, map);
+    ctx.globalAlpha = s.alive ? (fx.ghost ? 0.5 : 1) : 0.28;
     const effSkin = {
       pattern: (s.alive && !fx.frozen) ? ((s.skin && s.skin.pattern) || 'SOLID') : 'SOLID',
-      color: !s.alive ? 'rgba(120,130,150,0.7)' : (fx.frozen ? '#9fe8ff' : s.color),
+      color: !s.alive ? '#7a8296' : (fx.frozen ? '#9fe8ff' : s.color),
     };
-    paintSnake(ctx, s.body, effSkin, cell, false);
+    const glow = s.alive && (effSkin.pattern === 'NEON' || fx.speed || fx.shield);
+    renderSnake(ctx, pts, effSkin, cell, { glow, head: s.alive });
     ctx.globalAlpha = 1;
     if (!s.alive) return;
-    const head = s.body[0];
+    const head = pts[0];
     const hx = head.x * cell + cell / 2, hy = head.y * cell + cell / 2;
-    // Effect outlines.
-    if (fx.shield) { ctx.strokeStyle = '#0a84ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hx, hy, cell * 0.6, 0, Math.PI * 2); ctx.stroke(); }
-    if (fx.speed) { ctx.strokeStyle = '#64d2ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hx, hy, cell * 0.5, 0, Math.PI * 2); ctx.stroke(); }
-    // Head dot.
-    ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 0.85;
-    ctx.beginPath(); ctx.arc(hx, hy, Math.max(1.5, cell * 0.12), 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
+    if (fx.shield) { ctx.strokeStyle = 'rgba(10,132,255,0.9)'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(hx, hy, cell * 0.66, 0, Math.PI * 2); ctx.stroke(); }
+    if (fx.speed) { ctx.strokeStyle = 'rgba(100,210,255,0.7)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hx, hy, cell * 0.54, 0, Math.PI * 2); ctx.stroke(); }
   }
 
-  // Shared snake painter (used by the game and the skin preview).
-  function paintSnake(g, body, skin, cellSize, isPreview) {
+  // Connected snake renderer with eyes and glow. `pts` are cell coordinates.
+  function renderSnake(g, pts, skin, cellSize, opts) {
+    opts = opts || {};
     const pattern = (skin && skin.pattern) || 'SOLID';
     const color = (skin && skin.color) || '#39ff14';
-    if (pattern === 'NEON') { g.shadowColor = color; g.shadowBlur = cellSize * 0.6; }
-    for (let i = 0; i < body.length; i++) {
-      const seg = body[i];
-      if (pattern === 'DASHED' && i % 2 === 1 && i !== 0) continue; // leave gaps
-      let fill = color;
-      if (pattern === 'STRIPES') fill = (i % 2 === 0) ? color : shade(color, 0.5);
-      else if (pattern === 'GRADIENT') fill = shade(color, 1 - (i / Math.max(1, body.length)) * 0.65);
-      g.fillStyle = fill;
-      const pad = i === 0 ? 0.5 : 1.5;
-      roundRectOn(g, seg.x * cellSize + pad, seg.y * cellSize + pad, cellSize - pad * 2, cellSize - pad * 2, 3);
+    const w = cellSize * 0.78;
+    const C = (p) => ({ x: p.x * cellSize + cellSize / 2, y: p.y * cellSize + cellSize / 2 });
+
+    // Split the body into runs, breaking at large gaps (tunnel wrap).
+    const runs = []; let run = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) > 1.8) { runs.push(run); run = [b]; }
+      else run.push(b);
+    }
+    runs.push(run);
+
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    if (opts.glow) { g.shadowColor = color; g.shadowBlur = cellSize * 0.85; }
+    for (const r of runs) {
+      if (r.length === 1) {
+        const c = C(r[0]); g.fillStyle = color; g.beginPath(); g.arc(c.x, c.y, w / 2, 0, Math.PI * 2); g.fill();
+        continue;
+      }
+      let stroke = color;
+      if (pattern === 'GRADIENT') {
+        const h = C(r[0]), t = C(r[r.length - 1]);
+        const grad = g.createLinearGradient(h.x, h.y, t.x, t.y);
+        grad.addColorStop(0, color); grad.addColorStop(1, shade(color, 0.35));
+        stroke = grad;
+      }
+      g.setLineDash(pattern === 'DASHED' ? [cellSize * 0.7, cellSize * 0.45] : []);
+      g.strokeStyle = stroke; g.lineWidth = w;
+      g.beginPath();
+      const p0 = C(r[0]); g.moveTo(p0.x, p0.y);
+      for (let i = 1; i < r.length; i++) { const c = C(r[i]); g.lineTo(c.x, c.y); }
+      g.stroke();
+      g.setLineDash([]);
+      if (pattern === 'STRIPES') {
+        g.fillStyle = shade(color, 0.5);
+        for (let i = 1; i < r.length; i += 2) { const c = C(r[i]); g.beginPath(); g.arc(c.x, c.y, w * 0.34, 0, Math.PI * 2); g.fill(); }
+      }
     }
     g.shadowBlur = 0;
+
+    if (opts.head === false) return;
+    // Head + eyes.
+    const head = C(pts[0]);
+    if (opts.glow) { g.shadowColor = color; g.shadowBlur = cellSize * 0.85; }
+    g.fillStyle = color; g.beginPath(); g.arc(head.x, head.y, w * 0.62, 0, Math.PI * 2); g.fill();
+    g.shadowBlur = 0;
+    let dx = (opts.dir && opts.dir.x) || 1, dy = (opts.dir && opts.dir.y) || 0;
+    if (pts.length > 1) {
+      const ddx = pts[0].x - pts[1].x, ddy = pts[0].y - pts[1].y;
+      if (Math.abs(ddx) <= 1.8 && Math.abs(ddy) <= 1.8 && (ddx || ddy)) { dx = ddx; dy = ddy; }
+    }
+    const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
+    const px = -dy, py = dx, eo = w * 0.26, ef = w * 0.16;
+    for (const sgn of [1, -1]) {
+      const ex = head.x + dx * ef + px * eo * sgn, ey = head.y + dy * ef + py * eo * sgn;
+      g.fillStyle = '#ffffff'; g.beginPath(); g.arc(ex, ey, Math.max(1.2, w * 0.17), 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#05060a'; g.beginPath(); g.arc(ex + dx * ef * 0.5, ey + dy * ef * 0.5, Math.max(0.8, w * 0.09), 0, Math.PI * 2); g.fill();
+    }
+  }
+
+  // ---- particles ----
+  function spawnBurst(px, py, color, count, spd, sizeBase) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2, s = spd * (0.4 + Math.random() * 0.7);
+      particles.push({ x: px, y: py, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 1, decay: 0.02 + Math.random() * 0.03, color, size: sizeBase * (0.5 + Math.random() * 0.6) });
+    }
+    if (particles.length > 400) particles.splice(0, particles.length - 400);
+  }
+  function updateDrawParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92; p.life -= p.decay * dt;
+      if (p.life <= 0) { particles.splice(i, 1); continue; }
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = p.color; ctx.shadowColor = p.color; ctx.shadowBlur = 6;
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.5, p.size * p.life), 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  }
+  function triggerSnakeFx(state) {
+    for (const s of state.snakes) {
+      const prev = prevMeta.get(s.id);
+      const head = (smoothBodies.get(s.id) || s.body)[0] || s.body[0];
+      if (head && prev) {
+        const hx = head.x * cell + cell / 2, hy = head.y * cell + cell / 2;
+        if (s.score > prev.score) spawnBurst(hx, hy, '#ffe07a', 6, cell * 0.18, cell * 0.16);
+        if (prev.alive && !s.alive) {
+          spawnBurst(hx, hy, s.color, 22, cell * 0.4, cell * 0.24);
+          if (s.id === myId) { shakeT = 16; shakeMag = cell * 0.5; }
+        }
+      }
+      prevMeta.set(s.id, { score: s.score, alive: s.alive });
+    }
   }
 
   // Darken (<1) or lighten (>1) a #rrggbb colour; non-hex passes through.
