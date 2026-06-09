@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import http from 'http';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { RoomManager } from './game.js';
 
@@ -41,17 +42,34 @@ const clients = new Map(); // id -> { ws, roomCode }
 // Lightweight in-memory activity history for the admin screen (last ~24h).
 // No names or PII are stored — only counts. Resets if the process restarts.
 const DAY_MS = 24 * 3600 * 1000;
+const HISTORY_FILE = process.env.HISTORY_FILE || path.join(process.cwd(), 'data', 'history.json');
 function countHumans() { let n = 0; for (const c of clients.values()) if (c.roomCode) n++; return n; }
 function countBots() { let n = 0; for (const r of manager.rooms.values()) for (const p of r.players.values()) if (p.bot) n++; return n; }
 const history = {
-  samples: [], events: [],
+  samples: [], events: [], saveTimer: null,
+  load() {
+    try {
+      const d = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+      const cut = Date.now() - DAY_MS;
+      this.samples = (d.samples || []).filter((s) => s.t >= cut);
+      this.events = (d.events || []).filter((e) => e.t >= cut);
+    } catch { /* no file yet */ }
+  },
+  save() {
+    if (this.saveTimer) return; // debounce a burst of changes into one write
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      try { fs.mkdirSync(path.dirname(HISTORY_FILE), { recursive: true }); fs.writeFileSync(HISTORY_FILE, JSON.stringify({ samples: this.samples, events: this.events })); }
+      catch (e) { console.error('history save failed:', e.message); }
+    }, 2000);
+  },
   prune() {
     const cut = Date.now() - DAY_MS;
     while (this.samples.length && this.samples[0].t < cut) this.samples.shift();
     while (this.events.length && this.events[0].t < cut) this.events.shift();
   },
-  record(type) { this.events.push({ t: Date.now(), type }); this.prune(); },
-  sample() { this.samples.push({ t: Date.now(), humans: countHumans(), rooms: manager.rooms.size, bots: countBots() }); this.prune(); },
+  record(type) { this.events.push({ t: Date.now(), type }); this.prune(); this.save(); },
+  sample() { this.samples.push({ t: Date.now(), humans: countHumans(), rooms: manager.rooms.size, bots: countBots() }); this.prune(); this.save(); },
   dump() {
     this.prune();
     const joins = this.events.filter((e) => e.type === 'join').length;
@@ -65,6 +83,7 @@ const history = {
     };
   },
 };
+history.load();
 setInterval(() => history.sample(), 60000);
 history.sample();
 

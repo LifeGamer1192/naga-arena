@@ -8,6 +8,12 @@ primary_region = "nrt"  # Tokyo
 
 [env]
   PORT = "8080"
+  # Admin activity history persists here so it survives restarts/redeploys.
+  HISTORY_FILE = "/data/history.json"
+
+[mounts]
+  source = "naga_data"
+  destination = "/data"
 
 [http_service]
   internal_port = 8080
