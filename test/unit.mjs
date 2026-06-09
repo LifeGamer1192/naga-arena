@@ -189,6 +189,18 @@ const room = (opts = {}) => new GameRoom('T', { map: 'VOID', bots: 0, ...opts })
   check('U21: bot self-destructed past its timer', !bot.alive && bot.respawnAt > 0);
 })();
 
+// U22: respawn picks a spot clear of other snakes' bodies.
+(() => {
+  const r = room({ map: 'VOID' });
+  const b = r.addPlayer('b', { name: 'B' }); const a = r.addPlayer('a', { name: 'A' });
+  b.hx = 20; b.hy = 15; b.trail = []; for (let i = 0; i < 60; i++) b.trail.push({ x: 5 + i * 0.5, y: 15 });
+  r.spawn(a);
+  let min = Infinity;
+  for (const t of b.trail) min = Math.min(min, Math.hypot(r.dxWrap(a.hx, t.x), r.dyWrap(a.hy, t.y)));
+  min = Math.min(min, Math.hypot(r.dxWrap(a.hx, b.hx), r.dyWrap(a.hy, b.hy)));
+  check('U22: respawn keeps clear of other bodies', min >= 3);
+})();
+
 // U20: name sanitisation.
 (() => {
   check('U20: trims & caps', sanitizeName('  Snakey McSnake Face  ').length <= 16);

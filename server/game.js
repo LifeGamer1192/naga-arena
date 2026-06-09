@@ -140,8 +140,29 @@ export class GameRoom {
     return { x: W / 2, y: H / 2 };
   }
 
+  // A spawn cell kept clear of walls AND every other snake's body, so a fresh
+  // snake doesn't die the instant it respawns.
+  safeSpawnCell(self) {
+    const W = this.map.w, H = this.map.h, SAFE = 4, safe2 = SAFE * SAFE;
+    let best = null, bestMin = -1;
+    for (let t = 0; t < 160; t++) {
+      const x = Math.random() * W, y = Math.random() * H;
+      if (this.solidAt(x, y)) continue;
+      let minD2 = Infinity;
+      for (const o of this.players.values()) {
+        if (o === self || !o.alive) continue;
+        let d = this.dist2(x, y, o.hx, o.hy); if (d < minD2) minD2 = d;
+        for (let i = 0; i < o.trail.length; i += 2) { d = this.dist2(x, y, o.trail[i].x, o.trail[i].y); if (d < minD2) { minD2 = d; if (minD2 < safe2) break; } }
+        if (minD2 < safe2) continue; // this candidate is already too close
+      }
+      if (minD2 >= safe2) return { x, y };           // clear of every body
+      if (minD2 > bestMin) { bestMin = minD2; best = { x, y }; } // farthest fallback
+    }
+    return best || { x: W / 2, y: H / 2 };
+  }
+
   spawn(p) {
-    const s = this.randOpenCell();
+    const s = this.safeSpawnCell(p);
     p.hx = s.x; p.hy = s.y; p.ang = Math.random() * Math.PI * 2; p.targetAng = p.ang;
     p.bodyLen = CONFIG.START_LEN; p.alive = true; p.respawnAt = 0;
     if (p.bot) p.lifeUntil = this.clock + CONFIG.BOT_LIFE_MS;
