@@ -63,6 +63,7 @@ const room = (opts = {}) => new GameRoom('T', { map: 'VOID', bots: 0, ...opts })
 (() => {
   const r = room({ map: 'TUNNEL' });
   const a = r.addPlayer('a', { name: 'A' }), b = r.addPlayer('b', { name: 'B' });
+  a.spawnSafeUntil = 0; b.spawnSafeUntil = 0; // disable spawn protection for the collision
   b.hx = 14; b.hy = 10; b.trail = []; for (let i = 0; i < 12; i++) b.trail.push({ x: 14 - i * CONFIG.SPACING, y: 10 });
   a.hx = b.trail[5].x; a.hy = 10; a.ang = Math.PI; r.update(16);
   check('U7: hitting another snake is lethal', !a.alive && b.alive);
@@ -165,6 +166,7 @@ const room = (opts = {}) => new GameRoom('T', { map: 'VOID', bots: 0, ...opts })
 // U18: classic mode makes your own tail lethal.
 (() => {
   const r = room({ map: 'TUNNEL', classic: true }); const s = r.addPlayer('s', { name: 'S' });
+  s.spawnSafeUntil = 0; // disable spawn protection so self-collision applies
   s.hx = 20; s.hy = 20; s.ang = 0; s.bodyLen = 18; // longer than the tight-turn circle
   s.trail = []; for (let i = 0; i < 12; i++) s.trail.push({ x: 20 - i * CONFIG.SPACING, y: 20 });
   let alive = true;
@@ -187,6 +189,25 @@ const room = (opts = {}) => new GameRoom('T', { map: 'VOID', bots: 0, ...opts })
   check('U21: bot has a life timer', bot && bot.lifeUntil > r.clock);
   bot.lifeUntil = r.clock + 50; r.update(120);
   check('U21: bot self-destructed past its timer', !bot.alive && bot.respawnAt > 0);
+})();
+
+// U23: a freshly (re)spawned snake is invulnerable & non-lethal for a moment,
+// so nothing dies to a snake that appears right in front of it.
+(() => {
+  const r = room({ map: 'TUNNEL' });
+  const a = r.addPlayer('a', { name: 'A' }); const b = r.addPlayer('b', { name: 'B' });
+  check('U23: fresh spawn is protected', r.protectedNow(a) && r.protectedNow(b));
+  // B (protection cleared) drives into A's body while A is still protected.
+  b.spawnSafeUntil = 0;
+  a.hx = 10; a.hy = 10; a.trail = []; for (let i = 0; i < 12; i++) a.trail.push({ x: 10 - i * CONFIG.SPACING, y: 10 });
+  b.hx = a.trail[5].x; b.hy = 10; b.ang = Math.PI;
+  r.update(16);
+  check('U23: a protected snake body is non-lethal', b.alive);
+  // Once A's protection expires, the same hit is lethal again.
+  a.spawnSafeUntil = 0; b.spawnSafeUntil = 0;
+  b.hx = a.trail[5].x; b.hy = 10; b.ang = Math.PI;
+  r.update(16);
+  check('U23: lethal again after protection ends', !b.alive);
 })();
 
 // U22: respawn picks a spot clear of other snakes' bodies.

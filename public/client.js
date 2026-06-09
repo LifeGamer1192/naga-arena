@@ -383,7 +383,10 @@
     if (!s.alive || !s.body || s.body.length === 0) return;
     const headScale = s.giant ? 2 : 1;
     const body = unwrapBody(s.body, map.w, map.h, map.tunnel);
+    // Freshly spawned snakes are invulnerable & passable — show them blinking.
+    ctx.globalAlpha = s.protectedSnake ? (0.3 + 0.25 * Math.sin(Date.now() / 110)) : 1;
     renderSnake(ctx, body, s.color, cell, isMe || s.giant, headScale);
+    ctx.globalAlpha = 1;
     const h = s.body[0];
     const hxp = h.x * cell, hyp = h.y * cell;
     const headTop = hyp - cell * (0.7 * headScale);

@@ -9,7 +9,7 @@ import { getMap, MAP_IDS } from './maps.js';
 
 export const CONFIG = {
   SPEED: 6.8, TURN: 3.6, SPACING: 0.45, BODY_RADIUS: 0.46, FOOD_RADIUS: 0.85,
-  START_LEN: 5, GROW: 1.4, RESPAWN_MS: 3000, FOOD_DENSITY: 0.03,
+  START_LEN: 5, GROW: 1.4, RESPAWN_MS: 3000, SPAWN_PROTECT_MS: 1800, FOOD_DENSITY: 0.03,
   DEFAULT_MAP: 'TUNNEL', MAX_PLAYERS: 12,
   BOTS_DEFAULT: 1, BOTS_MAX: 8, BOT_LIFE_MS: 180000, // bots self-destruct every 3 min so they don't get too big
   // Frog wandering (hops twice as far, 1.5x as often).
@@ -165,6 +165,7 @@ export class GameRoom {
     const s = this.safeSpawnCell(p);
     p.hx = s.x; p.hy = s.y; p.ang = Math.random() * Math.PI * 2; p.targetAng = p.ang;
     p.bodyLen = CONFIG.START_LEN; p.alive = true; p.respawnAt = 0;
+    p.spawnSafeUntil = this.clock + CONFIG.SPAWN_PROTECT_MS; // brief invulnerability after (re)spawn
     if (p.bot) p.lifeUntil = this.clock + CONFIG.BOT_LIFE_MS;
     p.eff = { vacuum: 0, giant: 0, poisonGas: 0, poisoned: 0 };
     p.trail = [];
@@ -196,6 +197,9 @@ export class GameRoom {
     return len;
   }
 
+  // True while a freshly (re)spawned snake is invulnerable: it can't kill or be
+  // killed, so nobody dies to a snake that appears right in front of them.
+  protectedNow(p) { return p.spawnSafeUntil && this.clock < p.spawnSafeUntil; }
   headRadius(p) { return CONFIG.BODY_RADIUS * (p.eff.giant && this.clock < p.eff.giant ? CONFIG.GIANT_SCALE : 1); }
   eatRadius(p) { return CONFIG.FOOD_RADIUS * (p.eff.giant && this.clock < p.eff.giant ? 1.6 : 1); }
   speedMult(p) { return (p.eff.poisoned && this.clock < p.eff.poisoned) ? CONFIG.POISON_SLOW : 1; }
@@ -326,11 +330,12 @@ export class GameRoom {
 
     // Collisions: another snake's body is lethal; own tail is safe except in classic.
     for (const p of this.players.values()) {
-      if (!p.alive) continue;
+      if (!p.alive || this.protectedNow(p)) continue; // protected snakes can't die
       const hr = this.headRadius(p);
       for (const o of this.players.values()) {
         if (!o.alive) continue;
         if (o === p && !this.classic) continue;
+        if (o !== p && this.protectedNow(o)) continue; // protected bodies are non-lethal
         const rr2 = (hr + CONFIG.BODY_RADIUS) ** 2;
         const start = o === p ? Math.ceil(CONFIG.START_LEN / CONFIG.SPACING) : 0; // skip own neck in classic
         for (let i = start; i < o.trail.length; i += 2) {
@@ -384,6 +389,7 @@ export class GameRoom {
         body: p.alive ? this.wireBody([{ x: p.hx, y: p.hy }, ...p.trail]) : [],
         score: p.score, length: Math.round(p.bodyLen),
         giant: !!(p.eff.giant && this.clock < p.eff.giant),
+        protectedSnake: this.protectedNow(p),
         effects: this.wireEffects(p),
         respawnIn: !p.alive && p.respawnAt ? Math.max(0, Math.ceil((p.respawnAt - this.clock) / 1000)) : 0,
       })),
