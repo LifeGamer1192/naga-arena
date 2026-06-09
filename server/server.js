@@ -1,6 +1,6 @@
-// NAGA ARENA - Phase 1 MVP server.
-// Express serves the static client; ws handles the realtime game protocol.
-// Single shared room (URL-shared rooms come in Phase 2).
+// NAGA ARENA - Phase 2 server.
+// Express serves the static client; ws handles the realtime protocol.
+// Players are grouped into URL-shared rooms managed by RoomManager.
 
 import express from 'express';
 import { WebSocketServer } from 'ws';
@@ -8,93 +8,107 @@ import http from 'http';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { GameRoom, PHASE } from './game.js';
+import { RoomManager } from './game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const PORT = process.env.PORT || 3000;
-const BROADCAST_MS = 50; // 20 ticks/sec broadcast (per spec)
+const BROADCAST_MS = 50;
 
 const app = express();
 app.use(express.static(PUBLIC_DIR));
-app.get('/health', (_req, res) => res.json({ ok: true }));
+app.get('/health', (_req, res) => res.json({ ok: true, rooms: manager.rooms.size }));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const room = new GameRoom();
-const sockets = new Map(); // id -> ws
+const manager = new RoomManager();
+const clients = new Map(); // id -> { ws, roomCode }
 
 function send(ws, type, data) {
-  if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify({ type, ...data }));
-  }
+  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type, ...data }));
 }
 
-function broadcast(type, data) {
+function broadcast(code, type, data) {
   const msg = JSON.stringify({ type, ...data });
-  for (const ws of sockets.values()) {
-    if (ws.readyState === ws.OPEN) ws.send(msg);
+  for (const c of clients.values()) {
+    if (c.roomCode === code && c.ws.readyState === c.ws.OPEN) c.ws.send(msg);
   }
 }
 
 wss.on('connection', (ws) => {
   const id = randomUUID();
-  sockets.set(id, ws);
-  const player = room.addPlayer(id);
-  // Tell the client its own identity.
-  send(ws, 'welcome', { id, you: { name: player.name, color: player.color } });
+  clients.set(id, { ws, roomCode: null });
 
   ws.on('message', (raw) => {
     let msg;
-    try {
-      msg = JSON.parse(raw.toString());
-    } catch {
-      return;
-    }
+    try { msg = JSON.parse(raw.toString()); } catch { return; }
+    const client = clients.get(id);
+    if (!client) return;
+
     switch (msg.type) {
-      case 'input':
-        if (typeof msg.dir === 'string') room.setDirection(id, msg.dir);
+      case 'join': {
+        const room = manager.getOrCreate(msg.room, msg.mode, msg.map);
+        client.roomCode = room.code;
+        const player = room.addPlayer(id);
+        send(ws, 'welcome', {
+          id, room: room.code,
+          you: { name: player.name, color: player.color },
+          isHost: room.hostId === id,
+        });
         break;
-      case 'ready':
-        room.setReady(id, !!msg.ready);
-        room.maybeStart();
+      }
+      case 'config': {
+        const room = client.roomCode && manager.rooms.get(client.roomCode);
+        if (room) room.configure(id, { mode: msg.mode, map: msg.map });
         break;
+      }
+      case 'ready': {
+        const room = client.roomCode && manager.rooms.get(client.roomCode);
+        if (room) { room.setReady(id, !!msg.ready); room.maybeStart(); }
+        break;
+      }
+      case 'input': {
+        const room = client.roomCode && manager.rooms.get(client.roomCode);
+        if (room && typeof msg.dir === 'string') room.setDirection(id, msg.dir);
+        break;
+      }
       case 'ping':
         send(ws, 'pong', { ts: msg.ts });
         break;
-      default:
-        break;
+      default: break;
     }
   });
 
-  ws.on('close', () => {
-    sockets.delete(id);
-    room.removePlayer(id);
-  });
-
-  ws.on('error', () => {
-    sockets.delete(id);
-    room.removePlayer(id);
-  });
+  const cleanup = () => {
+    const client = clients.get(id);
+    if (client && client.roomCode) {
+      const room = manager.rooms.get(client.roomCode);
+      if (room) room.removePlayer(id);
+    }
+    clients.delete(id);
+  };
+  ws.on('close', cleanup);
+  ws.on('error', cleanup);
 });
 
-// Main server loop.
+// Main loop: advance every room and broadcast per-room state.
 let last = Date.now();
 setInterval(() => {
   const now = Date.now();
   const dt = now - last;
   last = now;
 
-  const events = room.update(dt);
-  for (const ev of events) {
-    if (ev.type === 'KILL') broadcast('event', { event: ev });
-    if (ev.type === 'ROUND_END') broadcast('result', { results: ev.results });
+  for (const { code, room, events } of manager.updateAll(dt)) {
+    for (const ev of events) {
+      if (ev.type === 'KILL') broadcast(code, 'event', { event: ev });
+      if (ev.type === 'ROUND_END') broadcast(code, 'result', { results: ev.results });
+    }
+    broadcast(code, 'state', { state: room.snapshot() });
   }
-  broadcast('state', { state: room.snapshot() });
 }, BROADCAST_MS);
 
 server.listen(PORT, () => {
   console.log(`NAGA ARENA server listening on http://localhost:${PORT}`);
-  console.log(`Phase 1 MVP — Battle Royale, food only. Phase: ${PHASE.LOBBY}`);
+  console.log('Phase 2 — rooms, 4 maps, 7 items, Battle Royale / Score Attack / Team Battle');
 });

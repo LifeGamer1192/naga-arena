@@ -6,5 +6,8 @@ npm-debug.log*
 dist/
 *.log
 
+# Local Claude Code settings (may contain local paths)
+.claude/
+
 # Original Notion export (kept locally, not published)
 NAGA ARENA *.md

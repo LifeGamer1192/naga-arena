@@ -1,193 +1,206 @@
 # NAGA ARENA
 
-## **NAGA ARENA — 企画書・システム設計書**
+## NAGA ARENA — Design Document
 
-### **概要**
+### Overview
 
-NAGA ARENAは、古典的なヘビゲームにリアルタイム対戦を組み合わせた、ブラウザで即座に遊べるマルチプレイヤーゲームです。インストール不要・ルーム共有URLで友達とすぐに対戦できる手軽さと、戦略的な駆け引きの深さを両立させます。
+NAGA ARENA is a browser-based multiplayer game that combines the classic snake
+game with real-time competition. No installation required: share a room URL and
+play with friends instantly, while keeping the strategic depth of competitive play.
 
-| **項目** | **内容** |
+| Item | Detail |
 | --- | --- |
-| ジャンル | マルチプレイヤー対戦ヘビゲーム |
-| プラットフォーム | ブラウザ（HTML/CSS/JS） |
-| 最大人数（1ルーム） | 8人 |
-| 1試合の目標時間 | 2〜5分 |
-| 対応デバイス | PC / スマホ（タッチ操作対応） |
+| Genre | Multiplayer competitive snake |
+| Platform | Browser (HTML/CSS/JS) |
+| Max players (per room) | 8 |
+| Target match length | 2–5 minutes |
+| Devices | PC / mobile (touch supported) |
 
-### **コアゲームプレイ**
+### Core gameplay
 
-グリッドマップ上で各プレイヤーのヘビが移動し続ける。フードを食べると体長が伸び、スコアが増加。自分または他プレイヤーの胴体・壁に衝突すると死亡。最後まで生き残った、または最高スコアのプレイヤーが勝利。
+Each player's snake moves continuously on a grid map. Eating food increases body
+length and score. Colliding with your own body, another player's body, or a wall
+kills you. The last survivor, or the highest score, wins.
 
-### **移動・操作**
+### Movement & controls
 
-| **操作** | **PC** | **モバイル** | **備考** |
+| Action | PC | Mobile | Note |
 | --- | --- | --- | --- |
-| 上 | ↑ / W | スワイプ上 | 現在下向き中は無効 |
-| 下 | ↓ / S | スワイプ下 | 現在上向き中は無効 |
-| 左 | ← / A | スワイプ左 | 現在右向き中は無効 |
-| 右 | → / D | スワイプ右 | 現在左向き中は無効 |
-| ブースト | Space / Shift | タップ長押し | 速度2倍・体長-2（要3セル以上） |
+| Up | ↑ / W | Swipe up | Ignored while moving down |
+| Down | ↓ / S | Swipe down | Ignored while moving up |
+| Left | ← / A | Swipe left | Ignored while moving right |
+| Right | → / D | Swipe right | Ignored while moving left |
+| Boost | Space / Shift | Long-press | 2x speed, -2 length (requires 3+ cells) |
 
-### **スコア計算**
+### Scoring
 
-`フードスコア = 食べたフード数 × 10 × コンボ倍率
-コンボ倍率   = 1 + (連続取得数 × 0.1)  // 最大×3.0
-生存ボーナス = 生存時間(秒) × 0.5
-キル報酬     = キル数 × 50
-最終スコア   = フードスコア + 生存ボーナス + キル報酬
+```
+food score   = food eaten x 10 x combo multiplier
+combo mult   = 1 + (consecutive picks x 0.1)   // max x3.0
+survival     = seconds alive x 0.5
+kill reward  = kills x 50
+final score  = food score + survival + kill reward
 
-順位補正（Battle Royale）
-1位: ×2.0  ／  2位: ×1.5  ／  3位: ×1.2`
+Rank bonus (Battle Royale)
+1st: x2.0  /  2nd: x1.5  /  3rd: x1.2
+```
 
 ---
 
-### **ゲームモード**
+### Game modes
 
-| **モード** | **人数** | **勝利条件** | **特徴** |
+| Mode | Players | Win condition | Notes |
 | --- | --- | --- | --- |
-| BATTLE ROYALE | 2〜8人 | 最後の生存者 | 標準モード |
-| SCORE ATTACK | 2〜8人 | 制限時間内最高スコア | 3分間・死亡後即リスポーン |
-| TEAM BATTLE | 4〜8人（2チーム） | チーム合計スコア | 味方衝突無効 |
-| RANKED | 4〜8人 | ポイント制 | レーティング変動あり |
+| BATTLE ROYALE | 2–8 | Last survivor | Standard mode |
+| SCORE ATTACK | 2–8 | Highest score within time limit | 3 minutes, respawn on death |
+| TEAM BATTLE | 4–8 (2 teams) | Team total score | Friendly collisions disabled |
+| RANKED | 4–8 | Point-based | Rating changes |
 
-### **マップ**
+### Maps
 
-| **マップ名** | **サイズ** | **特徴** |
+| Map | Size | Notes |
 | --- | --- | --- |
-| VOID | 40×30 | 障害物なし。標準フィールド |
-| LABYRINTH | 50×40 | 固定壁あり。迷路状 |
-| TUNNEL | 40×30 | テレポートトンネル（壁抜け） |
-| ARENA | 60×50 | 中央コロシアム型。障害物が定期出現 |
+| VOID | 40×30 | No obstacles. Standard field |
+| LABYRINTH | 50×40 | Fixed walls, maze-like |
+| TUNNEL | 40×30 | Teleport tunnel (wrap-around edges) |
+| ARENA | 60×50 | Central coliseum, periodic obstacles |
 
-### **アイテム**
+### Items
 
-| **アイテム** | **効果** | **出現確率** | **持続** |
+| Item | Effect | Spawn chance | Duration |
 | --- | --- | --- | --- |
-| フード | 体長+1、スコア+10 | 常時 | — |
-| スーパーフード | 体長+3、スコア+50 | 5% | — |
-| スピードアップ | 移動速度×1.5 | 8% | 5秒 |
-| シュリンク | 体長を半分に | 5% | — |
-| シールド | 1回の衝突を無効化 | 6% | 10秒 |
-| フリーズボム | 周囲3セル以内を1秒停止 | 4% | — |
-| ゴースト | 衝突判定消滅（すり抜け） | 3% | 4秒 |
+| Food | +1 length, +10 score | Always | — |
+| Super Food | +3 length, +50 score | 5% | — |
+| Speed Up | Move speed x1.5 | 8% | 5s |
+| Shrink | Halve length | 5% | — |
+| Shield | Block one collision | 6% | 10s |
+| Freeze Bomb | Freeze snakes within 3 cells for 1s | 4% | — |
+| Ghost | Disable collision (pass through) | 3% | 4s |
 
-### **システム設計**
+### System design
 
-### **アーキテクチャ**
+#### Architecture
 
-権威サーバー方式を採用。ゲームロジックは全てサーバーで処理し、クライアントは入力送信と描画のみ担当。
+Authoritative-server model. All game logic runs on the server; clients only send
+input and render.
 
-`Browser Clients（〜8人）
-  ↕ WebSocket（入力 / ステート差分）
+```
+Browser Clients (~8)
+  ↕ WebSocket (input / state diffs)
 Node.js Game Server
   ↕
-Redis（ルーム・セッション） + PostgreSQL（スコア・ランキング）`
+Redis (rooms / sessions) + PostgreSQL (scores / rankings)
+```
 
-### **技術スタック**
+#### Tech stack
 
-| **層** | **技術** |
+| Layer | Tech |
 | --- | --- |
-| フロントエンド | HTML5 Canvas、Vanilla JS (ES2022)、WebSocket API |
-| バックエンド | Node.js 20+、ws、Express |
-| キャッシュ | Redis 7（Upstash無料枠） |
-| DB | PostgreSQL 15（Neon無料枠） |
-| ホスティング | Cloudflare Pages（フロント）+ [Fly.io](http://Fly.io)（サーバー） |
+| Frontend | HTML5 Canvas, Vanilla JS (ES2022), WebSocket API |
+| Backend | Node.js 20+, ws, Express |
+| Cache | Redis 7 (Upstash free tier) |
+| DB | PostgreSQL 15 (Neon free tier) |
+| Hosting | Cloudflare Pages (frontend) + Fly.io (server) |
 
-### **ゲームループ（サーバー側・50ms間隔）**
+#### Game loop (server-side, 50ms interval)
 
-`1. 入力バッファから各蛇の次方向を確定
-2. 全蛇を1セル移動（新頭部座標を計算）
-3. 衝突判定（壁・胴体・ヘッドオン）
-4. アイテム取得判定 → 効果適用
-5. フード不足なら新規スポーン
-6. 勝利条件チェック
-7. ステート差分をブロードキャスト`
+```
+1. Resolve each snake's next direction from the input buffer
+2. Move all snakes one cell (compute new head positions)
+3. Collision checks (wall / body / head-on)
+4. Item pickup checks → apply effects
+5. Spawn new food if short
+6. Check win conditions
+7. Broadcast state diffs
+```
 
-### **WebSocketメッセージ仕様**
+#### WebSocket message spec
 
-**クライアント → サーバー**
+**Client → Server**
 
-| **イベント** | **ペイロード** | **説明** |
+| Event | Payload | Description |
 | --- | --- | --- |
-| input | {"dir":"UP","seq":42} | 方向入力（シーケンス番号付き） |
-| boost | {"active":true,"seq":43} | ブースト開始/終了 |
+| input | {"dir":"UP","seq":42} | Direction input (with sequence number) |
+| boost | {"active":true,"seq":43} | Boost start/stop |
 
-**サーバー → クライアント**
+**Server → Client**
 
-| **イベント** | **ペイロード** | **説明** |
+| Event | Payload | Description |
 | --- | --- | --- |
-| state | {"tick":1200,"snakes":[…],"items":[…]} | 毎tick差分配信 |
-| event | {"type":"KILL","killer":"p1","victim":"p3"} | ゲームイベント通知 |
-| result | {"rank":1,"score":1240,"kills":3} | 試合終了リザルト |
-| ping | {"ts":1749600000} | レイテンシ計測（5秒間隔） |
+| state | {"tick":1200,"snakes":[…],"items":[…]} | Per-tick state diff |
+| event | {"type":"KILL","killer":"p1","victim":"p3"} | Game event notification |
+| result | {"rank":1,"score":1240,"kills":3} | Match result |
+| ping | {"ts":1749600000} | Latency measurement (every 5s) |
 
-### **遅延対策**
+#### Latency handling
 
-| **手法** | **内容** |
+| Technique | Detail |
 | --- | --- |
-| Client-Side Prediction | 入力を即時ローカル反映し、サーバー確認で補正 |
-| Interpolation | 他プレイヤーの位置を2フレームバッファし線形補間表示 |
+| Client-Side Prediction | Apply input locally immediately, correct on server confirmation |
+| Interpolation | Buffer other players' positions by 2 frames, render with linear interpolation |
 
-| **指標** | **目標値** |
+| Metric | Target |
 | --- | --- |
-| サーバーTickレート | 20 tick/sec（50ms） |
-| 許容レイテンシ上限 | 200ms |
-| メッセージペイロード | < 2KB / tick |
+| Server tick rate | 20 tick/sec (50ms) |
+| Max acceptable latency | 200ms |
+| Message payload | < 2KB / tick |
 
-### **Canvas描画設計（4レイヤー）**
+#### Canvas rendering (4 layers)
 
-| **レイヤー** | **内容** | **更新頻度** |
+| Layer | Content | Update frequency |
 | --- | --- | --- |
-| Background | グリッド線・マップ障害物 | マップ変更時のみ |
-| Items | フード・アイテム（点滅アニメ） | 30fps |
-| Snakes | 胴体・頭部・エフェクト | 60fps（補間値使用） |
-| UI Overlay | スコア・残り時間・キルログ | 毎フレーム |
+| Background | Grid lines, map obstacles | Only on map change |
+| Items | Food, items (blinking animation) | 30fps |
+| Snakes | Bodies, heads, effects | 60fps (interpolated) |
+| UI Overlay | Score, time left, kill log | Every frame |
 
-### **画面遷移**
+#### Screen flow
 
-`TITLE → LOBBY → COUNTDOWN(3..2..1) → PLAYING → RESULT → LOBBY
+```
+TITLE → LOBBY → COUNTDOWN(3..2..1) → PLAYING → RESULT → LOBBY
                                           ↓
-                                     死亡後は観戦モードへ自動移行`
+                                   spectate after death
+```
 
 ---
 
-### **レーティングシステム**
+### Rating system
 
-| **ランク** | **レート範囲** | **変動幅（勝/負）** |
+| Rank | Rating range | Change (win/loss) |
 | --- | --- | --- |
-| BRONZE | 0〜999 | +30 / -20 |
-| SILVER | 1000〜1499 | +25 / -22 |
-| GOLD | 1500〜1999 | +20 / -25 |
-| DIAMOND | 2000〜2499 | +15 / -28 |
+| BRONZE | 0–999 | +30 / -20 |
+| SILVER | 1000–1499 | +25 / -22 |
+| GOLD | 1500–1999 | +20 / -25 |
+| DIAMOND | 2000–2499 | +15 / -28 |
 | SERPENT KING | 2500+ | +12 / -30 |
 
-### **インフラ・運用コスト**
+### Infrastructure & operating cost
 
-| **サービス** | **役割** | **無料枠** |
+| Service | Role | Free tier |
 | --- | --- | --- |
-| [Fly.io](http://Fly.io) | Node.jsサーバー | 共有CPU / 256MB RAM程度（無料枠は変動の可能性あり） |
-| Upstash | Redis | 10,000リクエスト/日・256MB |
+| Fly.io | Node.js server | Shared CPU / ~256MB RAM (free tier may change) |
+| Upstash | Redis | 10,000 requests/day, 256MB |
 | Neon | PostgreSQL | 500MB |
-| Cloudflare Pages | 静的ファイル配信 | 無制限 |
+| Cloudflare Pages | Static file delivery | Unlimited |
 
-友達間（〜50人/月）なら完全無料で運用可能。
+For a circle of friends (~50 players/month) it can run fully free.
 
 ---
 
-### **開発ロードマップ**
+### Development roadmap
 
-| **フェーズ** | **期間** | **内容** |
+| Phase | Duration | Scope |
 | --- | --- | --- |
-| Phase 1 | 〜2週間 | MVP：WebSocket接続・Battle Royaleのみ・フードのみ |
-| Phase 2 | 〜4週間 | URL共有ルーム・全アイテム・4マップ・全モード・モバイル対応 |
-| Phase 3 | 〜6週間 | Rankedモード・レーティング・リーダーボード・観戦モード |
-| Phase 4 | 〜8週間 | カスタムスキン・SE・大会モード・本番デプロイ |
+| Phase 1 | ~2 weeks | MVP: WebSocket connection, Battle Royale only, food only |
+| Phase 2 | ~4 weeks | URL-shared rooms, all items, 4 maps, all modes, mobile support |
+| Phase 3 | ~6 weeks | Ranked mode, rating, leaderboard, spectating |
+| Phase 4 | ~8 weeks | Custom skins, SFX, tournament mode, production deploy |
 
-### **技術リスク**
+### Technical risks
 
-| **リスク** | **重大度** | **対策** |
+| Risk | Severity | Mitigation |
 | --- | --- | --- |
-| 高レイテンシ環境でのゲーム崩壊 | 高 | 200ms超で警告表示・入力タイムスタンプ補正 |
-| チート（方向書き換え等） | 高 | 全判定をサーバー側で処理 |
-| スケールアウト時のルーム分散 | 中 | Redis Pub/SubでマルチNode間共有 |
-| スマホのCanvas描画負荷 | 中 | OffscreenCanvas・静的レイヤー事前描画 |
+| Gameplay breaks under high latency | High | Warn above 200ms, correct with input timestamps |
+| Cheating (direction tampering, etc.) | High | Run all decisions server-side |
+| Room distribution when scaling out | Medium | Share across nodes via Redis Pub/Sub |
+| Canvas rendering load on mobile | Medium | OffscreenCanvas, pre-render static layers |

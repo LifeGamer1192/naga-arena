@@ -1,97 +1,152 @@
 # NAGA ARENA
 
-ブラウザで即座に遊べる、リアルタイム対戦ヘビゲーム。サーバー権威方式（ゲームロジックは全てサーバーで処理）。
+A browser-based, real-time multiplayer snake game with an authoritative server
+(all game logic runs on the server; clients only send input and render).
 
-> **🎮 ライブデモ: https://naga-arena.fly.dev/**
-> 友達とURLを共有して、複数端末で開けばそのまま対戦できます。
-> （アイドル時はマシンが停止するため、最初のアクセスは数秒の起動待ちが入ることがあります）
+> **🎮 Live demo: https://naga-arena.fly.dev/**
+> Share the room link with friends and open it on multiple devices to play together.
+> (Machines stop when idle, so the first request may take a few seconds to cold-start.)
 
-> **Phase 1 (MVP)** — このリポジトリの現在地点。
-> WebSocket接続 / Battle Royale モードのみ / フードのみ。
+> **Phase 2** — current state of this repository.
+> URL-shared rooms / all 7 items / 4 maps / 3 game modes / mobile support.
 
-## 特徴（Phase 1）
+## Features (Phase 2)
 
-- **サーバー権威方式**: 全ゲーム判定をサーバー側で実行（チート対策）。クライアントは入力送信と描画のみ。
-- **Battle Royale**: 最後の1匹まで生き残れ。フードを食べて体長とスコアを伸ばす。
-- **WebSocketリアルタイム同期**: 20 tick/sec でステートをブロードキャスト。
-- **PC / スマホ対応**: 矢印キー・WASD / スワイプ・タッチD-pad。
-- **スコア計算**: フードコンボ倍率・生存ボーナス・キル報酬・順位補正。
+- **Authoritative server**: every decision (movement, collisions, scoring) runs
+  server-side, which keeps the game cheat-resistant. Clients only send input.
+- **URL-shared rooms**: each room has a short code in the URL. Open the same link
+  to join the same room; the host picks the mode and map.
+- **3 game modes**:
+  - **Battle Royale** — last snake standing wins.
+  - **Score Attack** — 3 minutes, respawn on death, highest score wins.
+  - **Team Battle** — 2 teams, friendly pass-through, highest team total wins.
+- **4 maps**: VOID (open), LABYRINTH (maze walls), TUNNEL (wrap-around edges),
+  ARENA (central coliseum with periodic obstacles).
+- **7 items**: Food, Super Food, Speed Up, Shrink, Shield, Freeze Bomb, Ghost.
+- **Real-time sync** over WebSocket, broadcasting state at 20 ticks/sec.
+- **Desktop & mobile**: arrow keys / WASD, or swipe / on-screen D-pad.
 
-## 必要環境
+> RANKED mode and the rating system are intentionally deferred to Phase 3.
+
+## Requirements
 
 - Node.js 20+
 
-## セットアップと起動
+## Run locally
 
 ```bash
 npm install
 npm start
 ```
 
-ブラウザで http://localhost:3000 を開く。複数タブ／複数端末で開くと対戦になります。
+Open http://localhost:3000. Open multiple tabs/devices to play together.
 
-- `ENTER ARENA` → ロビーへ
-- 全員 `READY` で 3..2..1 → ゲーム開始（1人でも練習プレイ可能）
+- `ENTER ARENA` → lobby
+- The host selects mode & map; everyone presses `READY` → 3..2..1 → start
+  (you can play solo to practice).
+- Use **Copy invite link** to share the room URL.
 
-## 操作
+## Controls
 
-| 操作 | PC | モバイル |
+| Action | Desktop | Mobile |
 | --- | --- | --- |
-| 移動 | 矢印キー / WASD | スワイプ / 画面下のD-pad |
+| Move | Arrow keys / WASD | Swipe / on-screen D-pad |
 
-※ 現在の進行方向と逆向きへの入力は無効（即死防止）。
+Reversing directly into your current direction is ignored (prevents instant death).
 
-## 技術スタック
+## Items
 
-| 層 | 技術 |
+| Item | Effect | Spawn chance | Duration |
+| --- | --- | --- | --- |
+| Food | +1 length, +10 score | always on field | — |
+| Super Food | +3 length, +50 score | 5% | — |
+| Speed Up | move 1.5x faster | 8% | 5s |
+| Shrink | halve your length | 5% | — |
+| Shield | block one collision | 6% | 10s |
+| Freeze Bomb | freeze snakes within 3 cells | 4% | 1s |
+| Ghost | pass through bodies & obstacles | 3% | 4s |
+
+## Scoring
+
+```
+food score   = base(10/50) x combo multiplier
+combo mult   = 1 + (consecutive picks x 0.1)   // capped at x3.0
+survival     = seconds alive x 0.5             // Battle Royale
+kill reward  = kills x 50
+rank bonus   = 1st x2.0 / 2nd x1.5 / 3rd x1.2  // Battle Royale
+```
+
+## Tech stack
+
+| Layer | Tech |
 | --- | --- |
-| フロントエンド | HTML5 Canvas, Vanilla JS (ES2022), WebSocket API |
-| バックエンド | Node.js 20+, ws, Express |
+| Frontend | HTML5 Canvas, Vanilla JS (ES2022), WebSocket API |
+| Backend | Node.js 20+, ws, Express |
+| Hosting | Fly.io (single machine) |
 
-## アーキテクチャ
+## Architecture
 
 ```
-Browser Clients ──WebSocket(入力 / ステート)──> Node.js Game Server
-                                                  └ GameRoom（50ms ループ）
+Browser Clients ──WebSocket(input / state)──> Node.js Game Server
+                                                └ RoomManager → GameRoom (per room)
 ```
 
-- サーバーループ: 50ms 間隔でステートをブロードキャスト。
-- 蛇のステップ: `STEP_MS`（既定 130ms）ごとに1セル前進。
-- 衝突判定: 壁 / 胴体（自他）/ ヘッドオン / すれ違い。
+- Server loop broadcasts each room's state every 50ms.
+- Each snake advances one cell every `STEP_MS` (default 130ms); Speed Up shortens
+  that interval per snake.
+- Collisions: walls, static/dynamic obstacles, snake bodies (self & others),
+  with tunnel wrap, shield, ghost and friendly pass-through handled per map/mode.
 
-## ディレクトリ構成
+## Project layout
 
 ```
 naga_arena/
 ├── package.json
+├── Dockerfile, fly.toml, .dockerignore   # deployment
 ├── server/
-│   ├── server.js   # Express + ws、メインループ、ブロードキャスト
-│   └── game.js     # GameRoom: 移動・衝突・スコア・勝利判定
-└── public/
-    ├── index.html  # 画面（TITLE / LOBBY / GAME / RESULT）
-    ├── style.css
-    └── client.js   # WebSocketクライアント・Canvas描画・入力
+│   ├── server.js   # Express + ws, RoomManager wiring, broadcast loop
+│   ├── game.js     # GameRoom + RoomManager: movement, items, modes, scoring
+│   └── maps.js     # 4 map definitions
+├── public/
+│   ├── index.html  # screens: TITLE / LOBBY / GAME / RESULT
+│   ├── style.css
+│   └── client.js   # WebSocket client, Canvas renderer, input
+├── test/
+│   ├── unit.mjs    # deterministic engine tests
+│   └── smoke.mjs   # headless 2-client end-to-end test
+└── docs/DESIGN.md  # full design document (all phases)
 ```
 
-## デプロイ（Fly.io）
+## Tests
 
 ```bash
-fly apps create naga-arena      # 初回のみ
+npm test            # deterministic unit tests
+
+# headless end-to-end (server must be running on :3000)
+node test/smoke.mjs                       # Battle Royale on VOID
+MODE=SCORE_ATTACK MAP=ARENA node test/smoke.mjs
+```
+
+## Deploy (Fly.io)
+
+```bash
+fly apps create naga-arena      # first time only
 fly deploy --ha=false --remote-only
 ```
 
-`fly.toml` は **単一マシン構成**にしています（Phase 1 のゲームルームはサーバーのメモリ上にあり、
-全プレイヤーが同一インスタンスに接続する必要があるため）。マルチノード共有は Phase 2（Redis）の範囲です。
+`fly.toml` uses a **single machine** on purpose: a game room lives in server
+memory, so all players must connect to the same instance. Multi-node sharing
+(via Redis) is planned for a later phase.
 
-## ロードマップ
+## Roadmap
 
-| フェーズ | 内容 | 状態 |
+| Phase | Scope | Status |
 | --- | --- | --- |
-| Phase 1 | MVP: WebSocket・Battle Royale・フードのみ | ✅ 実装済み |
-| Phase 2 | URL共有ルーム・全アイテム・4マップ・全モード・モバイル最適化 | 予定 |
-| Phase 3 | Rankedモード・レーティング・リーダーボード・観戦 | 予定 |
-| Phase 4 | スキン・SE・大会モード・本番デプロイ | 予定 |
+| Phase 1 | MVP: WebSocket, Battle Royale, food only | ✅ done |
+| Phase 2 | URL-shared rooms, all items, 4 maps, modes, mobile | ✅ done |
+| Phase 3 | Ranked mode, rating, leaderboard, spectating | planned |
+| Phase 4 | Skins, SFX, tournament mode, production deploy | planned |
 
-## ライセンス
+## License
 
 MIT
