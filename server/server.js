@@ -1,6 +1,6 @@
-// NAGA ARENA - Phase 2 server.
+// NAGA ARENA - server.
 // Express serves the static client; ws handles the realtime protocol.
-// Players are grouped into URL-shared rooms managed by RoomManager.
+// Players drop into a URL-shared endless world and steer with a heading angle.
 
 import express from 'express';
 import { WebSocketServer } from 'ws';
@@ -9,20 +9,16 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { RoomManager } from './game.js';
-import { RatingStore, tierOf } from './ratings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const PORT = process.env.PORT || 3000;
 const BROADCAST_MS = 50;
 
-const ratings = new RatingStore();
-const manager = new RoomManager(ratings);
+const manager = new RoomManager();
 
 const app = express();
 app.disable('x-powered-by');
-
-// Basic security headers for the production deploy.
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -34,24 +30,18 @@ app.use((_req, res, next) => {
   );
   next();
 });
-
 app.use(express.static(PUBLIC_DIR));
 app.get('/health', (_req, res) => res.json({ ok: true, rooms: manager.rooms.size }));
-app.get('/api/leaderboard', (_req, res) => res.json({ leaderboard: ratings.leaderboard(50) }));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
+
 const clients = new Map(); // id -> { ws, roomCode }
 
-function send(ws, type, data) {
-  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type, ...data }));
-}
-
+function send(ws, type, data) { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type, ...data })); }
 function broadcast(code, type, data) {
   const msg = JSON.stringify({ type, ...data });
-  for (const c of clients.values()) {
-    if (c.roomCode === code && c.ws.readyState === c.ws.OPEN) c.ws.send(msg);
-  }
+  for (const c of clients.values()) if (c.roomCode === code && c.ws.readyState === c.ws.OPEN) c.ws.send(msg);
 }
 
 wss.on('connection', (ws) => {
@@ -59,41 +49,20 @@ wss.on('connection', (ws) => {
   clients.set(id, { ws, roomCode: null });
 
   ws.on('message', (raw) => {
-    let msg;
-    try { msg = JSON.parse(raw.toString()); } catch { return; }
+    let msg; try { msg = JSON.parse(raw.toString()); } catch { return; }
     const client = clients.get(id);
     if (!client) return;
-
     switch (msg.type) {
       case 'join': {
-        const room = manager.getOrCreate(msg.room, msg.mode, msg.map);
+        const room = manager.getOrCreate(msg.room, msg.map);
         client.roomCode = room.code;
-        const player = room.addPlayer(id, { pid: msg.pid, name: msg.name, skin: msg.skin });
-        const r = player.pid ? ratings.get(player.pid) : null;
-        send(ws, 'welcome', {
-          id, room: room.code,
-          you: {
-            name: player.name, color: player.color,
-            rating: r ? r.rating : null,
-            tier: r ? tierOf(r.rating).name : null,
-          },
-          isHost: room.hostId === id,
-        });
+        const player = room.addPlayer(id, { pid: msg.pid, name: msg.name });
+        send(ws, 'welcome', { id, room: room.code, you: { name: player.name, color: player.color } });
         break;
       }
-      case 'config': {
+      case 'aim': {
         const room = client.roomCode && manager.rooms.get(client.roomCode);
-        if (room) room.configure(id, { mode: msg.mode, map: msg.map });
-        break;
-      }
-      case 'ready': {
-        const room = client.roomCode && manager.rooms.get(client.roomCode);
-        if (room) { room.setReady(id, !!msg.ready); room.maybeStart(); }
-        break;
-      }
-      case 'input': {
-        const room = client.roomCode && manager.rooms.get(client.roomCode);
-        if (room && typeof msg.dir === 'string') room.setDirection(id, msg.dir);
+        if (room) room.setAim(id, msg.ang);
         break;
       }
       case 'ping':
@@ -115,17 +84,14 @@ wss.on('connection', (ws) => {
   ws.on('error', cleanup);
 });
 
-// Main loop: advance every room and broadcast per-room state.
 let last = Date.now();
 setInterval(() => {
   const now = Date.now();
   const dt = now - last;
   last = now;
-
   for (const { code, room, events } of manager.updateAll(dt)) {
     for (const ev of events) {
       if (ev.type === 'KILL') broadcast(code, 'event', { event: ev });
-      if (ev.type === 'ROUND_END') broadcast(code, 'result', { results: ev.results });
     }
     broadcast(code, 'state', { state: room.snapshot() });
   }
@@ -133,5 +99,5 @@ setInterval(() => {
 
 server.listen(PORT, () => {
   console.log(`NAGA ARENA server listening on http://localhost:${PORT}`);
-  console.log('Phase 4 — skins, tournament mode, 5 modes, ratings, leaderboard, spectating');
+  console.log('Endless mode - continuous steering, follow-cam, infinite respawn.');
 });

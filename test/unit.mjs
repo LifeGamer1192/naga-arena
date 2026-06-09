@@ -1,307 +1,137 @@
-// Deterministic unit tests for the Phase 2 + Phase 3 engine (no network).
-import { GameRoom, RoomManager, CONFIG, sanitizeName, sanitizeSkin } from '../server/game.js';
-import { RatingStore, tierOf } from '../server/ratings.js';
-import os from 'os';
-import path from 'path';
+// Deterministic unit tests for the continuous endless engine (no network).
+import { GameRoom, RoomManager, CONFIG, PALETTE32, sanitizeName } from '../server/game.js';
 
 let failures = 0;
-const check = (name, cond) => {
-  console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}`);
-  if (!cond) failures++;
-};
+const check = (name, cond) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}`); if (!cond) failures++; };
+const only = (room) => [...room.players.values()][0];
 
-// Build a room forced into PLAYING with the given player count.
-function playingRoom(n, mode = 'BATTLE_ROYALE', map = 'VOID') {
-  const room = new GameRoom('TEST', mode, map);
-  for (let i = 0; i < n; i++) room.addPlayer('p' + i);
-  for (const id of [...room.players.keys()]) room.setReady(id, true);
-  room.maybeStart();                       // -> COUNTDOWN, snakes spawned
-  room.update(CONFIG.COUNTDOWN_MS + 1);    // -> PLAYING, clock reset to 0
-  return room;
-}
-const arr = (room) => [...room.players.values()];
-const stepOnce = (room) => room.update(CONFIG.STEP_MS); // advance every snake one cell
-
-// T1: wall crash kills, Battle Royale last-survivor win + rank x2.0 multiplier.
+// U1: a new player spawns alive with a trail and a palette colour.
 (() => {
-  const room = playingRoom(2);
-  const [a, b] = arr(room);
-  a.body = [{ x: room.map.w - 1, y: 5 }, { x: room.map.w - 2, y: 5 }, { x: room.map.w - 3, y: 5 }];
-  a.dir = a.pendingDir = 'RIGHT';
-  b.body = [{ x: 5, y: 20 }, { x: 4, y: 20 }, { x: 3, y: 20 }];
-  b.dir = b.pendingDir = 'DOWN'; b.score = 10;
-  room.items = [];
-  stepOnce(room);
-  check('T1: wall crash kills A', !a.alive);
-  check('T1: B survives & round ends', b.alive && room.phase === 'RESULT');
-  const w = room.results.find((r) => r.rank === 1);
-  check('T1: B is rank-1 with x2.0 multiplier (score 20)', w && w.id === b.id && w.score === 20);
+  const room = new GameRoom('T', 'VOID');
+  const p = room.addPlayer('a', { name: 'ALPHA' });
+  check('U1: spawned alive with trail', p.alive && p.trail.length > 2);
+  check('U1: colour from palette', PALETTE32.includes(p.color));
+  check('U1: food spawned', room.food.length > 0);
 })();
 
-// T2: ramming another snake credits a kill (+50) and emits a KILL event.
+// U2: colour is name-derived (deterministic) and de-duplicated per room.
 (() => {
-  const room = playingRoom(2);
-  const [a, b] = arr(room);
-  b.body = [{ x: 10, y: 8 }, { x: 10, y: 9 }, { x: 10, y: 10 }, { x: 10, y: 11 }]; b.dir = b.pendingDir = 'UP';
-  a.body = [{ x: 9, y: 10 }, { x: 8, y: 10 }, { x: 7, y: 10 }]; a.dir = a.pendingDir = 'RIGHT';
-  room.items = [];
-  const events = stepOnce(room);
-  check('T2: A dies ramming B', !a.alive);
-  check('T2: B credited kill +50', b.kills === 1 && b.score === 50);
-  check('T2: KILL event emitted', events.some((e) => e.type === 'KILL' && e.killer === b.id && e.victim === a.id));
+  const r1 = new GameRoom('A', 'VOID'); const c1 = r1.addPlayer('x', { name: 'Bob' }).color;
+  const r2 = new GameRoom('B', 'VOID'); const c2 = r2.addPlayer('y', { name: 'Bob' }).color;
+  check('U2: same name -> same colour', c1 === c2);
+  const room = new GameRoom('C', 'VOID');
+  const a = room.addPlayer('a', { name: 'Bob' }), b = room.addPlayer('b', { name: 'Bob' });
+  check('U2: same-name players get distinct colours', a.color !== b.color);
 })();
 
-// T3: 180-degree reversal rejected, perpendicular accepted.
+// U3: heading turns toward the target (rate-limited) and the head moves forward.
 (() => {
-  const room = playingRoom(1);
-  const [a] = arr(room); a.dir = a.pendingDir = 'RIGHT';
-  room.setDirection(a.id, 'LEFT');
-  check('T3: reversal ignored', a.pendingDir === 'RIGHT');
-  room.setDirection(a.id, 'UP');
-  check('T3: perpendicular accepted', a.pendingDir === 'UP');
+  const room = new GameRoom('T', 'TUNNEL');
+  const p = room.addPlayer('a', { name: 'A' });
+  p.hx = 10; p.hy = 10; p.ang = 0; p.targetAng = Math.PI / 2;
+  const x0 = p.hx;
+  room.update(100);
+  check('U3: turned toward target but rate-limited', p.ang > 0 && p.ang <= CONFIG.TURN * 0.1 + 1e-6);
+  check('U3: head advanced forward', p.hx > x0);
 })();
 
-// T4: eating food grows the snake and applies combo scoring.
+// U4: tunnel wraps around the edge instead of dying.
 (() => {
-  const room = playingRoom(1);
-  const [a] = arr(room);
-  a.body = [{ x: 5, y: 5 }, { x: 4, y: 5 }, { x: 3, y: 5 }]; a.dir = a.pendingDir = 'RIGHT';
-  a.combo = 0; a.score = 0;
-  room.items = [{ id: 1, type: 'FOOD', x: 6, y: 5 }];
-  const len = a.body.length;
-  stepOnce(room);
-  check('T4: grew by 1', a.body.length === len + 1);
-  check('T4: foodCount + score', a.foodCount === 1 && a.score >= 11);
+  const room = new GameRoom('T', 'TUNNEL');
+  const p = room.addPlayer('a', { name: 'A' });
+  p.hx = 0.1; p.hy = 5; p.ang = Math.PI; p.targetAng = Math.PI; // heading -x
+  room.update(60);
+  check('U4: wrapped to far edge, alive', p.alive && p.hx > room.map.w - 1);
 })();
 
-// T5: SUPER_FOOD grows by 3 and scores 50+.
+// U5: walls are lethal.
 (() => {
-  const room = playingRoom(1);
-  const [a] = arr(room);
-  a.body = [{ x: 5, y: 5 }, { x: 4, y: 5 }, { x: 3, y: 5 }]; a.dir = a.pendingDir = 'RIGHT';
-  room.ensureFood = () => {}; // keep the field deterministic across the multi-step advance
-  room.items = [{ id: 1, type: 'SUPER_FOOD', x: 6, y: 5 }];
-  const len = a.body.length;
-  // Advance enough steps for the +3 growth to fully materialise.
-  for (let i = 0; i < 3; i++) stepOnce(room);
-  check('T5: SUPER_FOOD grew by 3', a.body.length === len + 3);
+  const room = new GameRoom('T', 'LABYRINTH');
+  const p = room.addPlayer('a', { name: 'A' });
+  const [wx, wy] = [...room.map.walls][0].split(',').map(Number);
+  p.hx = wx + 0.5; p.hy = wy + 0.5; p.ang = 0; p.targetAng = 0;
+  room.update(16);
+  check('U5: entering a wall kills', !p.alive);
 })();
 
-// T6: SHIELD absorbs a lethal hit once.
+// U6: eating a frog grows the body and scores.
 (() => {
-  const room = playingRoom(1);
-  const [a] = arr(room);
-  a.body = [{ x: room.map.w - 1, y: 5 }, { x: room.map.w - 2, y: 5 }, { x: room.map.w - 3, y: 5 }];
-  a.dir = a.pendingDir = 'RIGHT';
-  a.shieldUntil = 999999; room.items = [];
-  const events = stepOnce(room);
-  check('T6: shield saved A from wall', a.alive && a.shieldUntil === 0);
-  check('T6: SHIELD event emitted', events.some((e) => e.type === 'SHIELD'));
+  const room = new GameRoom('T', 'TUNNEL');
+  const p = room.addPlayer('a', { name: 'A' });
+  p.hx = 10; p.hy = 10; p.bodyLen = CONFIG.START_LEN;
+  room.food = [{ id: 999, x: 10, y: 10 }];
+  room.update(16);
+  check('U6: ate one frog', p.foodCount === 1 && p.score === 10);
+  check('U6: body grew', p.bodyLen > CONFIG.START_LEN);
 })();
 
-// T7: GHOST lets a snake pass through a body.
+// U7: another snake's body is lethal, but your own tail is safe.
 (() => {
-  const room = playingRoom(2);
-  const [a, b] = arr(room);
-  b.body = [{ x: 6, y: 5 }, { x: 6, y: 6 }, { x: 6, y: 7 }]; b.dir = b.pendingDir = 'DOWN';
-  a.body = [{ x: 5, y: 5 }, { x: 4, y: 5 }, { x: 3, y: 5 }]; a.dir = a.pendingDir = 'RIGHT';
-  a.ghostUntil = 999999; room.items = [];
-  stepOnce(room);
-  check('T7: ghost passed through, A alive at (6,5)', a.alive && a.body[0].x === 6 && a.body[0].y === 5);
+  const room = new GameRoom('T', 'TUNNEL');
+  const a = room.addPlayer('a', { name: 'A' });
+  const b = room.addPlayer('b', { name: 'B' });
+  // B is a straight horizontal body; put A's head onto B's mid-trail.
+  b.hx = 14; b.hy = 10; b.ang = 0; b.targetAng = 0;
+  b.trail = []; for (let i = 0; i < 12; i++) b.trail.push({ x: 14 - i * CONFIG.SPACING, y: 10 });
+  a.hx = b.trail[5].x; a.hy = 10; a.ang = Math.PI; a.targetAng = Math.PI;
+  room.update(16);
+  check('U7: hitting another snake is lethal', !a.alive);
+  check('U7: the other snake survives', b.alive);
+
+  // Self-safety: a lone snake curling into its own body stays alive.
+  const room2 = new GameRoom('S', 'TUNNEL');
+  const s = room2.addPlayer('s', { name: 'S' });
+  s.hx = 15; s.hy = 15; s.ang = 0; s.targetAng = 0; s.bodyLen = 8;
+  s.targetAng = Math.PI; // force a hard U-turn so the head crosses the tail
+  let alive = true;
+  for (let i = 0; i < 60 && alive; i++) { room2.update(33); alive = s.alive; }
+  check('U7: self tail is safe through a tight turn', s.alive);
 })();
 
-// T8: SPEED_UP makes a snake advance two cells where a normal snake moves one.
+// U8: a dead snake respawns after the countdown.
 (() => {
-  const room = playingRoom(1);
-  const [a] = arr(room);
-  a.body = [{ x: 5, y: 5 }, { x: 4, y: 5 }, { x: 3, y: 5 }]; a.dir = a.pendingDir = 'RIGHT';
-  a.speedUntil = 999999; room.items = [];
-  room.update(180); // > 130 * (1/1.5) * 2 -> two steps at 1.5x speed
-  check('T8: speed snake advanced 2 cells', a.body[0].x === 7);
+  const room = new GameRoom('T', 'TUNNEL');
+  const p = room.addPlayer('a', { name: 'A' });
+  const wasColor = p.color;
+  room.kill(p, null, []);
+  check('U8: dead with respawn scheduled', !p.alive && p.respawnAt > 0);
+  for (let t = 0; t <= CONFIG.RESPAWN_MS + 200 && !p.alive; t += 50) room.update(50);
+  check('U8: respawned alive', p.alive && p.color === wasColor);
 })();
 
-// T9: SHRINK roughly halves a long snake.
+// U9: leaving the field on a non-tunnel map is lethal.
 (() => {
-  const room = playingRoom(1);
-  const [a] = arr(room);
-  a.body = []; for (let i = 0; i < 8; i++) a.body.push({ x: 10 - i, y: 5 });
-  a.dir = a.pendingDir = 'RIGHT';
-  room.items = [{ id: 1, type: 'SHRINK', x: 11, y: 5 }];
-  stepOnce(room);
-  check('T9: snake shrank', a.body.length < 8 && a.body.length >= CONFIG.START_LEN);
+  const room = new GameRoom('T', 'VOID');
+  const p = room.addPlayer('a', { name: 'A' });
+  p.hx = 0.1; p.hy = 5; p.ang = Math.PI; p.targetAng = Math.PI;
+  room.update(120);
+  check('U9: out of bounds kills on VOID', !p.alive);
 })();
 
-// T10: TUNNEL map wraps around the edge instead of killing.
+// U10: food is replenished up to the target density.
 (() => {
-  const room = playingRoom(1, 'BATTLE_ROYALE', 'TUNNEL');
-  const [a] = arr(room);
-  a.body = [{ x: 0, y: 5 }, { x: 1, y: 5 }, { x: 2, y: 5 }]; a.dir = a.pendingDir = 'LEFT';
-  room.items = [];
-  stepOnce(room);
-  check('T10: wrapped to right edge, alive', a.alive && a.body[0].x === room.map.w - 1);
+  const room = new GameRoom('T', 'VOID');
+  room.addPlayer('a', { name: 'A' });
+  room.food = []; room.ensureFood();
+  check('U10: food maintained at target', room.food.length === room.targetFood && room.targetFood > 0);
 })();
 
-// T11: TEAM_BATTLE - friendly pass-through vs enemy collision.
-(() => {
-  const room = playingRoom(4, 'TEAM_BATTLE'); // teams alternate RED/BLUE/RED/BLUE
-  const ps = arr(room);
-  const red = ps.filter((p) => p.team === 'RED');
-  const [r1, r2] = red;
-  // r2 head at (6,5) with its body extending UP, so moving DOWN is valid.
-  r2.body = [{ x: 6, y: 5 }, { x: 6, y: 4 }, { x: 6, y: 3 }]; r2.dir = r2.pendingDir = 'DOWN';
-  r1.body = [{ x: 5, y: 5 }, { x: 4, y: 5 }, { x: 3, y: 5 }]; r1.dir = r1.pendingDir = 'RIGHT';
-  room.items = [];
-  stepOnce(room);
-  check('T11: teammate pass-through (both alive)', r1.alive && r2.alive && r1.body[0].x === 6);
-})();
-
-// T12: SCORE_ATTACK respawns a dead snake after the delay, keeping score.
-(() => {
-  const room = playingRoom(1, 'SCORE_ATTACK'); // solo keeps the field clear
-  const [a] = arr(room);
-  a.score = 42;
-  room.killSnake(a, null, []);
-  check('T12: dead with respawn scheduled', !a.alive && a.respawnAt > 0);
-  // Advance in small real-time steps; stop the instant the respawn lands so the
-  // fresh snake never fast-forwards into a wall.
-  for (let t = 0; t <= CONFIG.RESPAWN_MS + 1000 && !a.alive; t += 50) room.update(50);
-  check('T12: respawned with score kept', a.alive && a.score === 42);
-})();
-
-// T13: RoomManager creates, reuses and cleans up rooms.
+// U11: RoomManager creates, reuses and cleans up rooms.
 (() => {
   const m = new RoomManager();
-  const r1 = m.getOrCreate('abc', 'BATTLE_ROYALE', 'VOID');
+  const r1 = m.getOrCreate('abc', 'TUNNEL');
   const r2 = m.getOrCreate('ABC');
-  check('T13: same code reuses room', r1 === r2 && r1.code === 'ABC');
-  const gen = m.generateCode();
-  check('T13: generated code is 5 chars', /^[A-Z0-9]{5}$/.test(gen));
-  r1.addPlayer('x'); r1.removePlayer('x'); // now empty
+  check('U11: same code reuses room', r1 === r2 && r1.code === 'ABC');
+  check('U11: code generator', /^[A-Z0-9]{5}$/.test(m.generateCode()));
+  r1.addPlayer('z', { name: 'Z' }); r1.removePlayer('z');
   m.updateAll(16);
-  check('T13: empty room cleaned up', !m.rooms.has('ABC'));
+  check('U11: empty room cleaned up', !m.rooms.has('ABC'));
 })();
 
-// T14: rating tiers map correctly at boundaries.
+// U12: name sanitisation.
 (() => {
-  check('T14: 1000 -> SILVER', tierOf(1000).name === 'SILVER');
-  check('T14: 999 -> BRONZE', tierOf(999).name === 'BRONZE');
-  check('T14: 2500 -> SERPENT KING', tierOf(2500).name === 'SERPENT KING');
-})();
-
-// T15: RatingStore applies tier-scaled win/loss to a ranked round.
-(() => {
-  const store = new RatingStore(path.join(os.tmpdir(), 'naga-test-ratings-' + 'x' + '.json'));
-  store.players.clear();
-  const changes = store.recordRankedRound([
-    { pid: 'a', name: 'A', rank: 1 },
-    { pid: 'b', name: 'B', rank: 2 },
-  ]);
-  const ca = changes.get('a'), cb = changes.get('b');
-  // Both start at 1000 (SILVER): win +25, loss -22.
-  check('T15: winner +25 from SILVER', ca && ca.won && ca.delta === 25 && ca.after === 1025);
-  check('T15: loser -22 from SILVER', cb && !cb.won && cb.delta === -22 && cb.after === 978);
-  check('T15: leaderboard sorted by rating', store.leaderboard()[0].name === 'A');
-})();
-
-// T16: RANKED round applies ratings and annotates result rows.
-(() => {
-  const store = new RatingStore(path.join(os.tmpdir(), 'naga-test-ratings-2.json'));
-  store.players.clear();
-  const room = new GameRoom('RK', 'RANKED', 'VOID');
-  room.ratings = store;
-  const pa = room.addPlayer('a', { pid: 'pa', name: 'ALPHA' });
-  const pb = room.addPlayer('b', { pid: 'pb', name: 'BETA' });
-  room.setReady('a', true); room.setReady('b', true);
-  room.maybeStart();
-  room.update(CONFIG.COUNTDOWN_MS + 1);
-  // B crashes into the wall; A survives and wins the ranked round.
-  pb.body = [{ x: room.map.w - 1, y: 5 }, { x: room.map.w - 2, y: 5 }, { x: room.map.w - 3, y: 5 }];
-  pb.dir = pb.pendingDir = 'RIGHT';
-  pa.body = [{ x: 5, y: 20 }, { x: 4, y: 20 }, { x: 3, y: 20 }]; pa.dir = pa.pendingDir = 'DOWN';
-  room.items = [];
-  room.update(CONFIG.STEP_MS);
-  check('T16: ranked round ended', room.phase === 'RESULT');
-  const winner = room.results.find((r) => r.rank === 1);
-  check('T16: winner row annotated with rating gain', winner && winner.rating && winner.rating.delta === 25);
-  check('T16: store updated for winner', store.get('pa').rating === 1025);
-})();
-
-// T17: a player joining mid-round spectates and is excluded from results.
-(() => {
-  const room = playingRoom(2);
-  const spec = room.addPlayer('spec', { pid: 'ps', name: 'WATCHER' });
-  check('T17: mid-round joiner is spectating', spec.spectating === true);
-  check('T17: spectator not a round participant', !room.roundParticipants.includes(spec));
-  // End the round; spectator must not appear in results.
-  const [a, b] = arr(room).filter((p) => p !== spec);
-  a.body = [{ x: room.map.w - 1, y: 5 }, { x: room.map.w - 2, y: 5 }, { x: room.map.w - 3, y: 5 }];
-  a.dir = a.pendingDir = 'RIGHT';
-  room.items = [];
-  stepOnce(room);
-  check('T17: results exclude the spectator', !room.results.some((r) => r.id === 'spec'));
-})();
-
-// T18: name sanitisation.
-(() => {
-  check('T18: trims & caps name', sanitizeName('  Snakey McSnake Face  ').length <= 16);
-  check('T18: empty -> null', sanitizeName('   ') === null);
-  check('T18: strips control chars', sanitizeName('a'+String.fromCharCode(1)+'b'+String.fromCharCode(31)+'c') === 'abc');
-})();
-
-// T19: skin sanitisation.
-(() => {
-  const ok = sanitizeSkin({ pattern: 'NEON', color: '#39ff14' });
-  check('T19: valid skin kept', ok.pattern === 'NEON' && ok.color === '#39ff14');
-  const bad = sanitizeSkin({ pattern: 'BOGUS', color: '#123123' });
-  check('T19: invalid pattern -> SOLID, bad color -> null', bad.pattern === 'SOLID' && bad.color === null);
-  check('T19: null skin -> null', sanitizeSkin(null) === null);
-})();
-
-// T20: skin is applied to the player and exposed in the snapshot.
-(() => {
-  const room = new GameRoom('SK', 'BATTLE_ROYALE', 'VOID');
-  const p = room.addPlayer('a', { skin: { pattern: 'STRIPES', color: '#0a84ff' } });
-  check('T20: player skin stored', p.skin.pattern === 'STRIPES');
-  check('T20: chosen colour overrides auto colour', p.color === '#0a84ff');
-  const snap = room.snapshot();
-  check('T20: snapshot carries skin', snap.snakes[0].skin.pattern === 'STRIPES');
-})();
-
-// T21: TOURNAMENT runs N rounds, accumulates points, then crowns a champion.
-(() => {
-  const room = new GameRoom('TR', 'TOURNAMENT', 'VOID');
-  const pa = room.addPlayer('a'); const pb = room.addPlayer('b');
-  room.setReady('a', true); room.setReady('b', true);
-  room.maybeStart();
-  check('T21: tournament started, round 0, active', room.tournamentActive && room.tournamentRound === 0);
-
-  const forceRoundEnd = () => {
-    room.update(CONFIG.COUNTDOWN_MS + 1); // COUNTDOWN -> PLAYING
-    // a survives (heads down in open space); b drives into the right wall.
-    pa.body = [{ x: 5, y: 20 }, { x: 4, y: 20 }, { x: 3, y: 20 }]; pa.dir = pa.pendingDir = 'DOWN';
-    pb.body = [{ x: room.map.w - 1, y: 6 }, { x: room.map.w - 2, y: 6 }, { x: room.map.w - 3, y: 6 }];
-    pb.dir = pb.pendingDir = 'RIGHT';
-    room.ensureFood = () => {}; room.items = [];
-    room.update(CONFIG.STEP_MS); // b crashes -> endRound -> RESULT
-  };
-
-  forceRoundEnd();
-  check('T21: round 1 ended, points awarded', room.tournamentRound === 1 && room.phase === 'RESULT');
-  const r1 = room.results.find((r) => r.id === 'a');
-  check('T21: winner got round points', r1 && r1.roundPoints === 2);
-
-  // Advance through the remaining rounds.
-  room.update(CONFIG.INTERMISSION_MS + 1); // RESULT -> next COUNTDOWN
-  forceRoundEnd(); // round 2
-  room.update(CONFIG.INTERMISSION_MS + 1);
-  forceRoundEnd(); // round 3 (final)
-  check('T21: tournament finished after 3 rounds', room.tournamentRound === 3 && !room.tournamentActive);
-  check('T21: champion is player a (most points)', room.champion && room.champion.id === 'a');
-  check('T21: standings total points = 6 for a', room.tournamentStandings()[0].points === 6);
-
-  // After the final RESULT, it returns to the lobby (not another round).
-  room.update(CONFIG.RESULT_MS + 1);
-  check('T21: returns to lobby after final round', room.phase === 'LOBBY');
+  check('U12: trims & caps', sanitizeName('  Snakey McSnake Face  ').length <= 16);
+  check('U12: empty -> null', sanitizeName('   ') === null);
 })();
 
 console.log(`\n${failures === 0 ? 'ALL UNIT TESTS PASS' : failures + ' UNIT TESTS FAILED'}`);

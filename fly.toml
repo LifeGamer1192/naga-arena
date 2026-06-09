@@ -8,12 +8,6 @@ primary_region = "nrt"  # Tokyo
 
 [env]
   PORT = "8080"
-  # Ratings/leaderboard persist on a mounted volume so they survive redeploys.
-  RATINGS_FILE = "/data/ratings.json"
-
-[mounts]
-  source = "naga_data"
-  destination = "/data"
 
 [http_service]
   internal_port = 8080

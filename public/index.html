@@ -11,96 +11,31 @@
     <!-- TITLE -->
     <section id="screen-title" class="screen active">
       <h1 class="logo">NAGA<span>ARENA</span></h1>
-      <p class="tagline">Real-time Multiplayer Snake</p>
+      <p class="tagline">Slither, eat frogs, survive &mdash; endless arena</p>
       <input id="name-input" class="name-input" maxlength="16" placeholder="Your name" />
-      <button id="btn-enter" class="btn primary">ENTER ARENA</button>
+      <div class="config-group">
+        <span class="config-title">MAP</span>
+        <div class="opt-row" id="map-options"></div>
+      </div>
+      <button id="btn-play" class="btn primary">PLAY</button>
       <div class="title-actions">
-        <button id="btn-customize" class="btn small">CUSTOMIZE</button>
-        <button id="btn-leaderboard" class="btn small">LEADERBOARD</button>
+        <button id="btn-copy" class="btn small">Copy invite link</button>
         <button id="btn-sound" class="btn small">SOUND: ON</button>
       </div>
+      <p class="hint small">Steer with the mouse, or arrow keys / WASD (diagonals too). On mobile, drag.<br>
+        Your own tail is safe; touching another snake is fatal. You respawn after a few seconds.</p>
       <p class="conn" id="conn-status">Connecting...</p>
     </section>
 
-    <!-- CUSTOMIZE -->
-    <section id="screen-customize" class="screen">
-      <h2>CUSTOMIZE SKIN</h2>
-      <canvas id="skin-preview" class="skin-preview" width="320" height="80"></canvas>
-      <div class="config-group">
-        <span class="config-title">PATTERN</span>
-        <div class="opt-row" id="pattern-options"></div>
-      </div>
-      <div class="config-group">
-        <span class="config-title">COLOR</span>
-        <div class="opt-row" id="color-options"></div>
-      </div>
-      <button id="btn-customize-back" class="btn small">DONE</button>
-    </section>
-
-    <!-- LEADERBOARD -->
-    <section id="screen-leaderboard" class="screen">
-      <h2>LEADERBOARD</h2>
-      <ol id="lb-list" class="lb-list"></ol>
-      <p class="hint small" id="lb-empty"></p>
-      <button id="btn-lb-back" class="btn small">BACK</button>
-    </section>
-
-    <!-- LOBBY -->
-    <section id="screen-lobby" class="screen">
-      <h2>LOBBY</h2>
-      <p id="my-rating" class="my-rating hidden"></p>
-      <div class="room-bar">
-        <span class="room-label">ROOM</span>
-        <span id="room-code" class="room-code">-----</span>
-        <button id="btn-copy" class="btn small">Copy invite link</button>
-      </div>
-
-      <div class="config" id="config">
-        <div class="config-group">
-          <span class="config-title">MODE</span>
-          <div class="opt-row" id="mode-options"></div>
-        </div>
-        <div class="config-group">
-          <span class="config-title">MAP</span>
-          <div class="opt-row" id="map-options"></div>
-        </div>
-        <p class="hint small" id="host-note"></p>
-      </div>
-
-      <ul id="player-list" class="player-list"></ul>
-      <button id="btn-ready" class="btn primary">READY</button>
-      <p class="hint small">All players ready &rarr; 3..2..1 &rarr; start. You can play solo to practice.</p>
-    </section>
-
-    <!-- GAME (countdown + playing) -->
+    <!-- GAME -->
     <section id="screen-game" class="screen">
       <canvas id="board"></canvas>
-      <div id="countdown" class="countdown hidden"></div>
-      <div id="spectating" class="spectating hidden">SPECTATING</div>
-      <div id="tournament-bar" class="tournament-bar hidden"></div>
       <div id="hud" class="hud">
-        <div id="scoreboard" class="scoreboard"></div>
-        <div class="hud-right">
-          <div id="timer" class="timer hidden"></div>
-          <div id="killlog" class="killlog"></div>
-        </div>
+        <div id="you-stats" class="you-stats"></div>
+        <div id="leaders" class="leaders"></div>
       </div>
-      <div id="touch-controls" class="touch-controls hidden">
-        <button class="dpad up" data-dir="UP">&#9650;</button>
-        <button class="dpad left" data-dir="LEFT">&#9664;</button>
-        <button class="dpad right" data-dir="RIGHT">&#9654;</button>
-        <button class="dpad down" data-dir="DOWN">&#9660;</button>
-      </div>
-    </section>
-
-    <!-- RESULT -->
-    <section id="screen-result" class="screen">
-      <h2 id="result-title">RESULT</h2>
-      <div id="champion" class="champion hidden"></div>
-      <div id="team-result" class="team-result hidden"></div>
-      <div id="tournament-standings" class="tournament-standings hidden"></div>
-      <ol id="result-list" class="result-list"></ol>
-      <p class="hint" id="result-countdown"></p>
+      <div id="respawn" class="respawn hidden"></div>
+      <div id="killlog" class="killlog"></div>
     </section>
   </div>
 

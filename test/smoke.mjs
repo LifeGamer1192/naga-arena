@@ -1,139 +1,66 @@
-// Headless smoke test for NAGA ARENA Phase 1.
-// Spawns two WebSocket clients, plays a Battle Royale round to completion,
-// and asserts the core mechanics (food eating, growth, win condition, scoring).
+// Headless end-to-end smoke for the continuous endless arena.
+// Two clients drop into a room: one chases frogs (should grow), one drives off
+// a VOID edge repeatedly (should die and respawn). Verifies the core loop.
 import { WebSocket } from 'ws';
 
 const URL = process.env.URL || 'ws://localhost:3000';
 const ROOM = process.env.ROOM || 'SMOKE';
-const MODE = process.env.MODE || 'BATTLE_ROYALE';
-const MAP = process.env.MAP || 'VOID';
+const MAP = process.env.MAP || 'VOID'; // VOID has edges so the suicide bot can die
 const log = (...a) => console.log('[test]', ...a);
-let failures = 0;
-function check(name, cond) {
-  console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}`);
-  if (!cond) failures++;
-}
 
-const OPP = { UP: 'DOWN', DOWN: 'UP', LEFT: 'RIGHT', RIGHT: 'LEFT' };
+let failures = 0;
+const check = (name, cond) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}`); if (!cond) failures++; };
 
 function makeClient(label, strategy) {
   const ws = new WebSocket(URL);
-  const c = { ws, label, id: null, state: null, dir: 'RIGHT', maxLen: 0, ateScore: 0, sawPlaying: false, result: null };
-  ws.on('open', () => {
-    // Unique persistent id per client so Ranked rating changes can apply.
-    const pid = `pid-${label}-${ROOM}`;
-    ws.send(JSON.stringify({ type: 'join', room: ROOM, mode: MODE, map: MAP, pid, name: `BOT-${label}` }));
-  });
+  const c = { ws, label, id: null, state: null, sawAlive: false, moved: false, maxScore: 0, maxLen: 0, deaths: 0, respawns: 0, _alive: null, _hx: null, _hy: null };
+  ws.on('open', () => ws.send(JSON.stringify({ type: 'join', room: ROOM, map: MAP, pid: `pid-${label}-${ROOM}`, name: `BOT-${label}` })));
   ws.on('message', (raw) => {
     const msg = JSON.parse(raw.toString());
-    if (msg.type === 'welcome') {
-      c.id = msg.id;
-    } else if (msg.type === 'state') {
-      c.mode = msg.state.mode;
-      c.state = msg.state;
-      // Ready up only once both bots are present, so the round never starts solo.
-      if (!c.readied && msg.state.phase === 'LOBBY' && msg.state.snakes.length >= 2) {
-        c.readied = true;
-        c.ws.send(JSON.stringify({ type: 'ready', ready: true }));
-      }
-      const me = msg.state.snakes.find((s) => s.id === c.id);
-      if (me) {
-        c.maxLen = Math.max(c.maxLen, me.body.length);
-        c.ateScore = Math.max(c.ateScore, me.score);
-      }
-      if (msg.state.phase === 'PLAYING') {
-        c.sawPlaying = true;
-        strategy(c, me, msg.state);
-      }
-      if (msg.state.phase === 'RESULT' && msg.state.results) {
-        c.result = msg.state.results;
-      }
+    if (msg.type === 'welcome') { c.id = msg.id; return; }
+    if (msg.type !== 'state') return;
+    c.state = msg.state;
+    const me = msg.state.snakes.find((s) => s.id === c.id);
+    if (!me) return;
+    if (me.alive) { c.sawAlive = true; c.maxScore = Math.max(c.maxScore, me.score); c.maxLen = Math.max(c.maxLen, me.length); }
+    if (me.alive && me.head) {
+      if (c._hx != null && (Math.abs(me.head.x - c._hx) > 0.01 || Math.abs(me.head.y - c._hy) > 0.01)) c.moved = true;
+      c._hx = me.head.x; c._hy = me.head.y;
     }
+    if (c._alive === true && me.alive === false) c.deaths++;
+    if (c._alive === false && me.alive === true) c.respawns++;
+    c._alive = me.alive;
+    strategy(c, me, msg.state);
   });
   return c;
 }
 
-function steer(c, dir) {
-  if (!dir || dir === OPP[c.dir]) return;
-  c.dir = dir;
-  c.ws.send(JSON.stringify({ type: 'input', dir }));
-}
+function aim(c, ang) { c.ws.send(JSON.stringify({ type: 'aim', ang })); }
 
-// Greedy food seeker: move head toward nearest food.
+// Chase the nearest frog.
 function greedy(c, me, state) {
-  const food = (state.items || []).filter((i) => i.type === 'FOOD' || i.type === 'SUPER_FOOD');
-  if (!me || !me.alive || food.length === 0) return;
-  const head = me.body[0];
-  let best = null, bestD = Infinity;
-  for (const f of food) {
-    const d = Math.abs(f.x - head.x) + Math.abs(f.y - head.y);
-    if (d < bestD) { bestD = d; best = f; }
-  }
-  if (!best) return;
-  const dx = best.x - head.x, dy = best.y - head.y;
-  let dir;
-  if (Math.abs(dx) >= Math.abs(dy)) dir = dx > 0 ? 'RIGHT' : (dx < 0 ? 'LEFT' : c.dir);
-  else dir = dy > 0 ? 'DOWN' : 'UP';
-  // Avoid immediate reversal; fall back to a perpendicular move.
-  if (dir === OPP[c.dir]) dir = dy !== 0 ? (head.x > 1 ? 'LEFT' : 'RIGHT') : (head.y > 1 ? 'UP' : 'DOWN');
-  steer(c, dir);
+  if (!me.alive || !me.head || !state.food.length) return;
+  let best = null, bd = Infinity;
+  for (const f of state.food) { const d = (f.x - me.head.x) ** 2 + (f.y - me.head.y) ** 2; if (d < bd) { bd = d; best = f; } }
+  if (best) aim(c, Math.atan2(best.y - me.head.y, best.x - me.head.x));
 }
-
-// Suicide runner: after a delay, drive straight into the right wall.
-let suicideArmed = false;
-function suicideAfter(ms) {
-  setTimeout(() => { suicideArmed = true; }, ms);
-  return (c, me, state) => {
-    if (suicideArmed) { steer(c, 'RIGHT'); return; }
-    greedy(c, me, state);
-  };
-}
-
-// Timed modes (Score Attack / Team Battle) run for 3 minutes, so we don't
-// wait for a round to end over the network; we verify play instead.
-// Battle Royale and Ranked are elimination modes that finish quickly.
-const TIMED = MODE === 'SCORE_ATTACK' || MODE === 'TEAM_BATTLE';
+// Drive straight at the right edge so it dies on VOID, then respawns.
+function suicide(c, me) { if (me.alive) aim(c, 0); }
 
 const a = makeClient('A', greedy);
-const b = makeClient('B', TIMED ? greedy : suicideAfter(4000));
+const b = makeClient('B', suicide);
 
-const TIMEOUT_MS = TIMED ? 12000 : 30000;
-const start = Date.now();
-const timer = setInterval(() => {
-  const done = TIMED
-    ? (a.sawPlaying && b.sawPlaying && Math.max(a.ateScore, b.ateScore) > 0 && Date.now() - start > 8000)
-    : (a.result && b.result);
-  if (done || Date.now() - start > TIMEOUT_MS) {
-    clearInterval(timer);
-    finish();
-  }
-}, 200);
+const RUN_MS = 12000;
+setTimeout(finish, RUN_MS);
 
 function finish() {
-  log(`--- assertions (mode=${MODE}) ---`);
+  log('--- assertions ---');
   check('both clients connected & got an id', !!a.id && !!b.id);
-  check('agreed on requested mode', a.mode === MODE && b.mode === MODE);
-  check('both clients saw PLAYING phase', a.sawPlaying && b.sawPlaying);
-  check('at least one snake grew beyond start length (3)', Math.max(a.maxLen, b.maxLen) > 3);
-  check('at least one snake scored points (food eaten)', Math.max(a.ateScore, b.ateScore) > 0);
-  if (!TIMED) {
-    const res = a.result || b.result;
-    check('round produced results', !!res && res.length === 2);
-    if (res) {
-      const ranks = res.map((r) => r.rank).sort();
-      check('results have distinct ranks 1 and 2', ranks[0] === 1 && ranks[1] === 2);
-      const winner = res.find((r) => r.rank === 1);
-      check('winner has a final score > 0', winner && winner.score > 0);
-      if (MODE === 'RANKED') {
-        check('ranked result carries a rating change', res.every((r) => r.rating && typeof r.rating.delta === 'number'));
-        console.log('   ranked:', JSON.stringify(res.map((r) => ({ name: r.name, rank: r.rank, delta: r.rating && r.rating.delta, after: r.rating && r.rating.after }))));
-      } else {
-        console.log('   results:', JSON.stringify(res.map((r) => ({ name: r.name, rank: r.rank, score: r.score, food: r.foodCount, kills: r.kills }))));
-      }
-    }
-  } else {
-    console.log(`   played ${MODE}; max score so far: ${Math.max(a.ateScore, b.ateScore)}`);
-  }
+  check('both clients saw themselves alive', a.sawAlive && b.sawAlive);
+  check('snakes moved (continuous motion)', a.moved && b.moved);
+  check('frog-chaser grew / scored', a.maxScore > 0 || a.maxLen > 5);
+  check('suicide bot died and respawned (infinite respawn)', b.deaths >= 1 && b.respawns >= 1);
+  console.log(`   A: score=${a.maxScore} len=${a.maxLen} | B: deaths=${b.deaths} respawns=${b.respawns}`);
   console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILED'}`);
   a.ws.close(); b.ws.close();
   process.exit(failures === 0 ? 0 : 1);

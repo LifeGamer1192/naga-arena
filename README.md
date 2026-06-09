@@ -1,46 +1,31 @@
 # NAGA ARENA
 
-A browser-based, real-time multiplayer snake game with an authoritative server
+A browser-based, real-time multiplayer snake arena with an authoritative server
 (all game logic runs on the server; clients only send input and render).
 
 > **🎮 Live demo: https://naga-arena.fly.dev/**
 > Share the room link with friends and open it on multiple devices to play together.
 > (Machines stop when idle, so the first request may take a few seconds to cold-start.)
 
-> **Phase 4** — current state of this repository (feature-complete).
-> URL-shared rooms / all 7 items / 4 maps / 5 game modes / Ranked rating +
-> leaderboard / spectating / custom skins / sound effects / mobile support.
+Slither around an endless arena, eat frogs to grow, and avoid other snakes.
+Your own tail is safe — only touching **another** snake is fatal. Death is never
+final: you respawn after a short countdown and keep playing until you leave.
 
 ## Features
 
-- **Authoritative server**: every decision (movement, collisions, scoring) runs
-  server-side, which keeps the game cheat-resistant. Clients only send input.
-- **URL-shared rooms**: each room has a short code in the URL. Open the same link
-  to join the same room; the host picks the mode and map.
-- **5 game modes**:
-  - **Battle Royale** — last snake standing wins.
-  - **Score Attack** — 3 minutes, respawn on death, highest score wins.
-  - **Team Battle** — 2 teams, friendly pass-through, highest team total wins.
-  - **Ranked** — last-survivor play that updates your persistent rating.
-  - **Tournament** — a 3-round series; placement points accumulate and a
-    champion is crowned.
-- **Ranked rating & leaderboard**: a persistent rating per player (no account
-  needed — a local id), tier-scaled win/loss deltas, and a global leaderboard
-  served at `/api/leaderboard`.
-- **Custom skins**: pick a pattern (solid, stripes, gradient, neon, dashed) and
-  colour; saved locally and rendered for everyone.
-- **Sound effects**: procedural WebAudio SFX for eat / pickup / kill / death /
-  countdown / win, with a mute toggle.
-- **Spectating**: join a room mid-match (or after being eliminated) and watch
-  the live game until the next round.
-- **4 maps**: VOID (open), LABYRINTH (maze walls), TUNNEL (wrap-around edges),
-  ARENA (central coliseum with periodic obstacles).
-- **7 items**: Food, Super Food, Speed Up, Shrink, Shield, Freeze Bomb, Ghost.
-- **Polished Canvas visuals**: smoothly interpolated motion, connected snake
-  bodies with directional eyes, glow/bloom, particle effects (eat sparkles,
-  death bursts), beveled walls, item glow, and a subtle death screen-shake.
-- **Real-time sync** over WebSocket, broadcasting state at 20 ticks/sec.
-- **Desktop & mobile**: arrow keys / WASD, or swipe / on-screen D-pad.
+- **Authoritative server**: movement, collisions and scoring all run server-side.
+- **Continuous analog steering**: smooth heading with diagonals and gentle curves
+  (no rigid 90° grid turns). Mouse, keyboard (WASD / arrows) or touch.
+- **Follow camera**: the view is zoomed in and tracks your snake; you don't need
+  to see the whole field.
+- **Infinite respawn**: when you die you respawn after a few-second countdown.
+- **Name-based colours**: your snake's colour is derived from your name (32-colour
+  palette, de-duplicated per room) so everyone is easy to tell apart.
+- **Self-safe collisions**: your own tail can't kill you; another snake's body can.
+- **Frog food**: eat frogs to grow; dying scatters frogs where you fell.
+- **4 maps** (default **TUNNEL**): VOID, LABYRINTH, TUNNEL (wrap-around edges),
+  ARENA. TUNNEL wraps seamlessly thanks to a tiling follow-camera.
+- **URL-shared rooms**, sound effects, particle effects, and mobile support.
 - **Production hardening**: security headers (CSP, nosniff, frame options).
 
 ## Requirements
@@ -54,59 +39,16 @@ npm install
 npm start
 ```
 
-Open http://localhost:3000. Open multiple tabs/devices to play together.
-
-- `ENTER ARENA` → lobby
-- The host selects mode & map; everyone presses `READY` → 3..2..1 → start
-  (you can play solo to practice).
-- Use **Copy invite link** to share the room URL.
+Open http://localhost:3000, type a name, pick a map and press **PLAY**.
+Open the same URL on another device/tab to join the same room.
 
 ## Controls
 
-| Action | Desktop | Mobile |
-| --- | --- | --- |
-| Move | Arrow keys / WASD | Swipe / on-screen D-pad |
-
-Reversing directly into your current direction is ignored (prevents instant death).
-
-## Items
-
-| Item | Effect | Spawn chance | Duration |
-| --- | --- | --- | --- |
-| Food | +1 length, +10 score | always on field | — |
-| Super Food | +3 length, +50 score | 5% | — |
-| Speed Up | move 1.5x faster | 8% | 5s |
-| Shrink | halve your length | 5% | — |
-| Shield | block one collision | 6% | 10s |
-| Freeze Bomb | freeze snakes within 3 cells | 4% | 1s |
-| Ghost | pass through bodies & obstacles | 3% | 4s |
-
-## Scoring
-
-```
-food score   = base(10/50) x combo multiplier
-combo mult   = 1 + (consecutive picks x 0.1)   // capped at x3.0
-survival     = seconds alive x 0.5             // Battle Royale
-kill reward  = kills x 50
-rank bonus   = 1st x2.0 / 2nd x1.5 / 3rd x1.2  // Battle Royale
-```
-
-## Ranked rating
-
-In Ranked mode, finishing in the top half of the lobby is a win. The rating
-change scales by your current tier (higher tiers gain less and lose more).
-Everyone starts at 1000 (SILVER).
-
-| Tier | Rating | Win / Loss |
-| --- | --- | --- |
-| BRONZE | 0–999 | +30 / -20 |
-| SILVER | 1000–1499 | +25 / -22 |
-| GOLD | 1500–1999 | +20 / -25 |
-| DIAMOND | 2000–2499 | +15 / -28 |
-| SERPENT KING | 2500+ | +12 / -30 |
-
-The leaderboard (players with at least one ranked match) is available at
-`GET /api/leaderboard` and from the title screen.
+| Input | How to steer |
+| --- | --- |
+| Mouse | Snake heads toward the cursor |
+| Keyboard | Arrow keys / WASD (hold two for diagonals) |
+| Touch | Drag — the snake heads toward your finger |
 
 ## Tech stack
 
@@ -119,15 +61,15 @@ The leaderboard (players with at least one ranked match) is available at
 ## Architecture
 
 ```
-Browser Clients ──WebSocket(input / state)──> Node.js Game Server
-                                                └ RoomManager → GameRoom (per room)
+Browser Clients ──WebSocket(aim / state)──> Node.js Game Server
+                                              └ RoomManager → GameRoom (per room)
 ```
 
-- Server loop broadcasts each room's state every 50ms.
-- Each snake advances one cell every `STEP_MS` (default 130ms); Speed Up shortens
-  that interval per snake.
-- Collisions: walls, static/dynamic obstacles, snake bodies (self & others),
-  with tunnel wrap, shield, ghost and friendly pass-through handled per map/mode.
+- Each snake has a continuous head position, heading angle and a trail; the head
+  advances each tick and the heading eases toward the player's aim (analog turn).
+- Collisions use wrap-aware (toroidal) distance against other snakes' trails.
+- The server broadcasts each room's state every 50ms; the client interpolates and
+  renders with a zoomed follow-camera (tiling the world for seamless TUNNEL wrap).
 
 ## Project layout
 
@@ -136,51 +78,37 @@ naga_arena/
 ├── package.json
 ├── Dockerfile, fly.toml, .dockerignore   # deployment
 ├── server/
-│   ├── server.js   # Express + ws, RoomManager wiring, broadcast loop, /api
-│   ├── game.js     # GameRoom + RoomManager: movement, items, modes, scoring,
-│   │               #   tournaments, skins
-│   ├── maps.js     # 4 map definitions
-│   └── ratings.js  # persistent rating store, tiers, leaderboard
+│   ├── server.js   # Express + ws, RoomManager wiring, broadcast loop
+│   ├── game.js     # GameRoom + RoomManager: continuous movement, food, respawn
+│   └── maps.js     # 4 map definitions
 ├── public/
-│   ├── index.html  # screens: TITLE / CUSTOMIZE / LEADERBOARD / LOBBY / GAME / RESULT
+│   ├── index.html  # TITLE + GAME screens
 │   ├── style.css
-│   └── client.js   # WebSocket client, Canvas renderer, input, SFX, skins
+│   └── client.js   # WebSocket client, follow-camera renderer, analog input
 └── test/
     ├── unit.mjs    # deterministic engine tests
+    ├── render.mjs  # headless DOM/Canvas harness that executes client.js
     └── smoke.mjs   # headless 2-client end-to-end test
 ```
 
 ## Tests
 
 ```bash
-npm test            # deterministic unit tests
+npm test            # deterministic unit tests + headless render harness
 
 # headless end-to-end (server must be running on :3000)
-node test/smoke.mjs                       # Battle Royale on VOID
-MODE=SCORE_ATTACK MAP=ARENA node test/smoke.mjs
+node test/smoke.mjs                 # VOID: chase frogs + verify respawn
 ```
 
 ## Deploy (Fly.io)
 
 ```bash
-fly apps create naga-arena                       # first time only
-fly volumes create naga_data --region nrt --size 1  # ratings persistence
+fly apps create naga-arena          # first time only
 fly deploy --ha=false --remote-only
 ```
 
 `fly.toml` uses a **single machine** on purpose: a game room lives in server
-memory, so all players must connect to the same instance. Multi-node sharing
-(via Redis) is planned for a later phase. Ratings are written to a mounted
-volume (`/data`) via the `RATINGS_FILE` env var, so they survive redeploys.
-
-## Roadmap
-
-| Phase | Scope | Status |
-| --- | --- | --- |
-| Phase 1 | MVP: WebSocket, Battle Royale, food only | ✅ done |
-| Phase 2 | URL-shared rooms, all items, 4 maps, modes, mobile | ✅ done |
-| Phase 3 | Ranked mode, rating, leaderboard, spectating | ✅ done |
-| Phase 4 | Skins, SFX, tournament mode, production deploy | ✅ done |
+memory, so all players must connect to the same instance.
 
 ## License
 
