@@ -22,6 +22,11 @@
 
   let ws = null, myId = null, lastState = null, killFeed = [];
   let chosenMap = localStorage.getItem('naga_map') || 'TUNNEL';
+  let chosenBots = parseInt(localStorage.getItem('naga_bots') ?? '1', 10);
+  let chosenClassic = localStorage.getItem('naga_classic') === '1';
+  const BOT_CHOICES = [0, 1, 2, 3, 4, 6, 8];
+  const EFFECT_LABEL = { vacuum: 'VAC', giant: 'BIG', poisonGas: 'GAS', poisoned: 'PSN' };
+  const EFFECT_COLOR = { vacuum: '#00e5ff', giant: '#ffd60a', poisonGas: '#7cfc3a', poisoned: '#b06bff' };
   const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
   // graphics / fx
@@ -57,20 +62,21 @@
     history.replaceState(null, '', url.toString());
   }
 
-  // ---- map picker ----
-  (function buildMaps() {
-    const row = $('map-options');
-    for (const m of MAPS) {
+  // ---- pickers ----
+  function buildPicker(rowId, items, getSel, onPick) {
+    const row = $(rowId);
+    row.innerHTML = '';
+    for (const it of items) {
       const b = document.createElement('button');
-      b.className = 'opt' + (m.id === chosenMap ? ' selected' : '');
-      b.textContent = m.label; b.dataset.map = m.id;
-      b.addEventListener('click', () => {
-        chosenMap = m.id; localStorage.setItem('naga_map', chosenMap);
-        row.querySelectorAll('.opt').forEach((o) => o.classList.toggle('selected', o.dataset.map === chosenMap));
-      });
+      b.className = 'opt' + (getSel() === it.val ? ' selected' : '');
+      b.textContent = it.label; b.dataset.val = it.val;
+      b.addEventListener('click', () => { onPick(it.val); row.querySelectorAll('.opt').forEach((o) => o.classList.toggle('selected', String(getSel()) === o.dataset.val)); });
       row.appendChild(b);
     }
-  })();
+  }
+  buildPicker('map-options', MAPS.map((m) => ({ val: m.id, label: m.label })), () => chosenMap, (v) => { chosenMap = v; localStorage.setItem('naga_map', v); });
+  buildPicker('bot-options', BOT_CHOICES.map((n) => ({ val: n, label: String(n) })), () => chosenBots, (v) => { chosenBots = v; localStorage.setItem('naga_bots', String(v)); });
+  buildPicker('mode-options', [{ val: false, label: 'NORMAL' }, { val: true, label: 'CLASSIC' }], () => chosenClassic, (v) => { chosenClassic = v; localStorage.setItem('naga_classic', v ? '1' : '0'); });
 
   // ---- connection ----
   function connect() {
@@ -86,13 +92,16 @@
   function handle(msg) {
     if (msg.type === 'welcome') { myId = msg.id; setRoomCode(msg.room); showScreen('game'); resizeCanvas(); }
     else if (msg.type === 'state') onState(msg.state);
-    else if (msg.type === 'event' && msg.event && msg.event.type === 'KILL') onKill(msg.event);
+    else if (msg.type === 'event' && msg.event) {
+      if (msg.event.type === 'KILL') onKill(msg.event);
+      else if (msg.event.type === 'GEM' && msg.event.player === myId) sound.gem();
+    }
   }
 
   $('btn-play').addEventListener('click', () => {
     localStorage.setItem('naga_name', myName());
     sound.resume();
-    send({ type: 'join', room: roomFromUrl(), map: chosenMap, pid: myPid, name: myName() });
+    send({ type: 'join', room: roomFromUrl(), map: chosenMap, bots: chosenBots, classic: chosenClassic, pid: myPid, name: myName() });
   });
   $('btn-copy').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(location.href); $('btn-copy').textContent = 'Copied!'; }
@@ -116,6 +125,7 @@
       isMuted: () => muted, resume: ensure,
       toggle() { muted = !muted; localStorage.setItem('naga_muted', muted ? '1' : '0'); if (!muted) ensure(); return muted; },
       eat() { tone(680, 0.07, 'square', 0.04); },
+      gem() { tone(520, 0.08, 'sine', 0.06); setTimeout(() => tone(880, 0.12, 'sine', 0.06), 80); },
       kill() { tone(300, 0.22, 'sawtooth', 0.07, 130); },
       death() { tone(200, 0.4, 'sawtooth', 0.08, 70); },
       spawn() { tone(720, 0.16, 'sine', 0.06); },
@@ -228,7 +238,8 @@
       ctx.save();
       ctx.translate(off.ox * Wpx, off.oy * Hpx);
       if (!map.tunnel) drawWalls(map, cell);
-      for (const f of state.food) drawFrog(ctx, f.x * cell, f.y * cell, cell * 0.42, now + f.id);
+      for (const c of (state.poison || [])) drawPoison(c.x * cell, c.y * cell, cell, now);
+      for (const f of state.food) drawFood(f, cell, now);
       for (const s of state.snakes) drawSnake(s, cell, s.id === myId);
       ctx.restore();
     }
@@ -271,36 +282,81 @@
     }
   }
 
-  function drawFrog(g, cx, cy, r, t) {
-    const bob = Math.sin(t / 350) * r * 0.06;
-    cy += bob;
-    g.fillStyle = '#2c9b50';
-    g.beginPath(); g.ellipse(cx - r * 0.78, cy + r * 0.45, r * 0.5, r * 0.28, 0.6, 0, Math.PI * 2); g.fill();
-    g.beginPath(); g.ellipse(cx + r * 0.78, cy + r * 0.45, r * 0.5, r * 0.28, -0.6, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#39c46a';
-    g.beginPath(); g.ellipse(cx, cy + r * 0.1, r, r * 0.82, 0, 0, Math.PI * 2); g.fill();
-    for (const sx of [-1, 1]) {
-      g.fillStyle = '#39c46a'; g.beginPath(); g.arc(cx + sx * r * 0.42, cy - r * 0.55, r * 0.4, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#f2fff6'; g.beginPath(); g.arc(cx + sx * r * 0.42, cy - r * 0.55, r * 0.3, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#0a1f10'; g.beginPath(); g.arc(cx + sx * r * 0.42, cy - r * 0.5, r * 0.15, 0, Math.PI * 2); g.fill();
-    }
+  function drawFood(f, cell, now) {
+    if (f.kind === 'FROG') drawFrog(ctx, f.x * cell, f.y * cell, cell * 0.42, now + f.id, f.ang || 0);
+    else drawGem(ctx, f.x * cell, f.y * cell, cell * 0.42, f.color || '#00e5ff', now + f.id);
   }
+
+  // A frog facing +x locally; rotated by `ang` so its heading is readable.
+  function drawFrog(g, cx, cy, r, t, ang) {
+    g.save();
+    g.translate(cx, cy + Math.sin(t / 350) * r * 0.05);
+    g.rotate(ang || 0);
+    g.fillStyle = '#2c9b50'; // hind legs at the back
+    g.beginPath(); g.ellipse(-r * 0.7, -r * 0.55, r * 0.42, r * 0.26, -0.6, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.ellipse(-r * 0.7, r * 0.55, r * 0.42, r * 0.26, 0.6, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#39c46a'; // body (longer along heading)
+    g.beginPath(); g.ellipse(0, 0, r * 1.05, r * 0.8, 0, 0, Math.PI * 2); g.fill();
+    for (const sy of [-1, 1]) { // eyes near the front, pupils looking forward
+      g.fillStyle = '#39c46a'; g.beginPath(); g.arc(r * 0.5, sy * r * 0.45, r * 0.34, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#f2fff6'; g.beginPath(); g.arc(r * 0.5, sy * r * 0.45, r * 0.25, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#0a1f10'; g.beginPath(); g.arc(r * 0.62, sy * r * 0.45, r * 0.12, 0, Math.PI * 2); g.fill();
+    }
+    g.restore();
+  }
+
+  function drawGem(g, cx, cy, r, color, t) {
+    g.save(); g.translate(cx, cy); g.rotate(Math.sin(t / 600) * 0.25);
+    g.shadowColor = color; g.shadowBlur = r * 1.6;
+    g.fillStyle = color;
+    g.beginPath(); g.moveTo(0, -r); g.lineTo(r * 0.78, 0); g.lineTo(0, r); g.lineTo(-r * 0.78, 0); g.closePath(); g.fill();
+    g.shadowBlur = 0;
+    g.fillStyle = 'rgba(255,255,255,0.55)';
+    g.beginPath(); g.moveTo(0, -r); g.lineTo(r * 0.78, 0); g.lineTo(0, 0); g.closePath(); g.fill();
+    g.restore();
+  }
+
+  function drawPoison(x, y, cell, t) {
+    const r = cell * (0.85 + 0.1 * Math.sin(t / 200 + x));
+    g_fillGlow(x, y, r, 'rgba(124,252,58,0.18)');
+  }
+  function g_fillGlow(x, y, r, color) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
 
   function drawSnake(s, cell, isMe) {
     if (!s.alive || !s.body || s.body.length === 0) return;
-    renderSnake(ctx, s.body, s.color, cell, isMe);
-    // Name tag above the head.
+    const headScale = s.giant ? 2 : 1;
+    renderSnake(ctx, s.body, s.color, cell, isMe || s.giant, headScale);
     const h = s.body[0];
-    ctx.globalAlpha = isMe ? 0.95 : 0.6;
-    ctx.fillStyle = '#e8f0ff';
+    const hxp = h.x * cell, hyp = h.y * cell;
+    const headTop = hyp - cell * (0.7 * headScale);
+    // Name tag.
+    ctx.globalAlpha = isMe ? 0.95 : 0.6; ctx.fillStyle = '#e8f0ff';
     ctx.font = `${Math.max(9, Math.round(cell * 0.6))}px system-ui, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(s.name, h.x * cell, h.y * cell - cell * 0.7);
+    ctx.fillText(s.name, hxp, headTop - cell * 0.15);
     ctx.globalAlpha = 1;
+    // Status badges (type + remaining seconds), readable for every snake.
+    const fx = s.effects || [];
+    if (fx.length) {
+      const chipH = cell * 0.62, gap = cell * 0.12;
+      const chips = fx.map((e) => `${EFFECT_LABEL[e.type] || e.type} ${e.remain}`);
+      ctx.font = `bold ${Math.max(8, Math.round(cell * 0.4))}px system-ui, sans-serif`;
+      const widths = chips.map((c) => ctx.measureText(c).width + cell * 0.4);
+      const total = widths.reduce((a, b) => a + b, 0) + gap * (fx.length - 1);
+      let bx = hxp - total / 2; const by = headTop - cell * 1.05;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (let i = 0; i < fx.length; i++) {
+        ctx.fillStyle = 'rgba(8,12,22,0.82)'; roundRect(bx, by, widths[i], chipH, 4);
+        ctx.fillStyle = EFFECT_COLOR[fx[i].type] || '#fff';
+        ctx.fillText(chips[i], bx + widths[i] / 2, by + chipH / 2 + 0.5);
+        bx += widths[i] + gap;
+      }
+    }
   }
 
   // Connected snake with eyes; splits on big gaps (tunnel seam).
-  function renderSnake(g, pts, color, cell, glow) {
+  function renderSnake(g, pts, color, cell, glow, headScale) {
+    headScale = headScale || 1;
     const w = cell * 0.82;
     const C = (p) => ({ x: p.x * cell, y: p.y * cell });
     const runs = []; let run = [pts[0]];
@@ -320,17 +376,20 @@
       g.stroke();
     }
     g.shadowBlur = 0;
-    // Head + eyes.
+    // Head + eyes (scaled up when giant).
     const head = C(pts[0]);
-    g.fillStyle = color; g.beginPath(); g.arc(head.x, head.y, w * 0.62, 0, Math.PI * 2); g.fill();
+    const hw = w * headScale;
+    if (glow && headScale > 1) { g.shadowColor = color; g.shadowBlur = cell * 1.1; }
+    g.fillStyle = color; g.beginPath(); g.arc(head.x, head.y, hw * 0.62, 0, Math.PI * 2); g.fill();
+    g.shadowBlur = 0;
     let dx = 1, dy = 0;
     if (pts.length > 1) { const ddx = pts[0].x - pts[1].x, ddy = pts[0].y - pts[1].y; if ((Math.abs(ddx) + Math.abs(ddy)) <= 2.5 && (ddx || ddy)) { dx = ddx; dy = ddy; } }
     const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
-    const px = -dy, py = dx, eo = w * 0.27, ef = w * 0.18;
+    const px = -dy, py = dx, eo = hw * 0.27, ef = hw * 0.18;
     for (const sgn of [1, -1]) {
       const ex = head.x + dx * ef + px * eo * sgn, ey = head.y + dy * ef + py * eo * sgn;
-      g.fillStyle = '#ffffff'; g.beginPath(); g.arc(ex, ey, w * 0.17, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#05060a'; g.beginPath(); g.arc(ex + dx * ef * 0.5, ey + dy * ef * 0.5, w * 0.09, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#ffffff'; g.beginPath(); g.arc(ex, ey, hw * 0.17, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#05060a'; g.beginPath(); g.arc(ex + dx * ef * 0.5, ey + dy * ef * 0.5, hw * 0.09, 0, Math.PI * 2); g.fill();
     }
   }
 

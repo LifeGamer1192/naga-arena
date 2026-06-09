@@ -17,7 +17,8 @@ function makeCtx() {
     canvas: { width: 1200, height: 800 },
     createRadialGradient: () => gradient, createLinearGradient: () => gradient,
     fillRect() { drawCalls++; }, arc() { drawCalls++; }, ellipse() { drawCalls++; },
-    fillText() {}, setLineDash() {}, setTransform() {}, save() {}, restore() {},
+    fillText() {}, measureText: (s) => ({ width: String(s).length * 6 }),
+    setLineDash() {}, setTransform() {}, save() {}, restore() {},
     translate() {}, rotate() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {},
     fill() {}, arcTo() {}, closePath() {}, clearRect() {}, strokeRect() {},
   }, { get(t, k) { return (k in t) ? t[k] : (() => {}); }, set(t, k, v) { t[k] = v; return true; } });
@@ -64,11 +65,16 @@ function makeState(mapId, tunnel) {
     code: 'TEST',
     map: { id: mapId, w: 20, h: 15, tunnel: !!tunnel, walls: tunnel ? [] : [{ x: 5, y: 5 }, { x: 6, y: 5 }] },
     snakes: [
-      { id: 'me', name: 'ME', color: '#39ff14', alive: true, head: { x: 10, y: 7 }, ang: 0.3, body, score: 50, length: 12, respawnIn: 0 },
-      { id: 'b', name: 'BB', color: '#ff2d55', alive: true, head: { x: 2, y: 12 }, ang: 1.2, body: [{ x: 2, y: 12 }, { x: 19.6, y: 12 }], score: 20, length: 6, respawnIn: 0 },
-      { id: 'c', name: 'CC', color: '#0a84ff', alive: false, head: null, ang: 0, body: [], score: 10, length: 5, respawnIn: 2 },
+      { id: 'me', name: 'ME', color: '#39ff14', bot: false, alive: true, head: { x: 10, y: 7 }, body, score: 50, length: 12, giant: true, effects: [{ type: 'giant', remain: 8 }, { type: 'vacuum', remain: 14 }], respawnIn: 0 },
+      { id: 'b', name: 'BOT 1', color: '#ff2d55', bot: true, alive: true, head: { x: 2, y: 12 }, body: [{ x: 2, y: 12 }, { x: 19.6, y: 12 }], score: 20, length: 6, giant: false, effects: [{ type: 'poisoned', remain: 5 }], respawnIn: 0 },
+      { id: 'c', name: 'CC', color: '#0a84ff', bot: false, alive: false, head: null, body: [], score: 10, length: 5, giant: false, effects: [], respawnIn: 2 },
     ],
-    food: [{ id: 1, x: 3.5, y: 3.2 }, { id: 2, x: 12.1, y: 9.4 }, { id: 3, x: 0.5, y: 0.5 }],
+    food: [
+      { id: 1, kind: 'FROG', x: 3.5, y: 3.2, ang: 0.7 }, { id: 2, kind: 'FROG', x: 12.1, y: 9.4, ang: 2.4 },
+      { id: 3, kind: 'VACUUM', x: 0.5, y: 0.5, color: '#00e5ff' }, { id: 4, kind: 'GIANT', x: 8, y: 2, color: '#ffd60a' },
+      { id: 5, kind: 'POISON', x: 15, y: 13, color: '#7cfc3a' },
+    ],
+    poison: [{ x: 6, y: 8 }, { x: 6.5, y: 8.3 }],
   };
 }
 

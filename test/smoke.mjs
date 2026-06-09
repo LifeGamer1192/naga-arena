@@ -14,7 +14,7 @@ const check = (name, cond) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}`
 function makeClient(label, strategy) {
   const ws = new WebSocket(URL);
   const c = { ws, label, id: null, state: null, sawAlive: false, moved: false, maxScore: 0, maxLen: 0, deaths: 0, respawns: 0, _alive: null, _hx: null, _hy: null };
-  ws.on('open', () => ws.send(JSON.stringify({ type: 'join', room: ROOM, map: MAP, pid: `pid-${label}-${ROOM}`, name: `BOT-${label}` })));
+  ws.on('open', () => ws.send(JSON.stringify({ type: 'join', room: ROOM, map: MAP, bots: 2, pid: `pid-${label}-${ROOM}`, name: `P-${label}` })));
   ws.on('message', (raw) => {
     const msg = JSON.parse(raw.toString());
     if (msg.type === 'welcome') { c.id = msg.id; return; }
@@ -22,7 +22,8 @@ function makeClient(label, strategy) {
     c.state = msg.state;
     const me = msg.state.snakes.find((s) => s.id === c.id);
     if (!me) return;
-    if (me.alive) { c.sawAlive = true; c.maxScore = Math.max(c.maxScore, me.score); c.maxLen = Math.max(c.maxLen, me.length); }
+    if (me.alive) { c.sawAlive = true; c.maxScore = Math.max(c.maxScore, me.score); c.maxLen = Math.max(c.maxLen, me.length); c.maxBodyPts = Math.max(c.maxBodyPts || 0, (me.body || []).length); }
+    c.maxBots = Math.max(c.maxBots || 0, msg.state.snakes.filter((s) => s.bot).length);
     if (me.alive && me.head) {
       if (c._hx != null && (Math.abs(me.head.x - c._hx) > 0.01 || Math.abs(me.head.y - c._hy) > 0.01)) c.moved = true;
       c._hx = me.head.x; c._hy = me.head.y;
@@ -59,8 +60,10 @@ function finish() {
   check('both clients saw themselves alive', a.sawAlive && b.sawAlive);
   check('snakes moved (continuous motion)', a.moved && b.moved);
   check('frog-chaser grew / scored', a.maxScore > 0 || a.maxLen > 5);
+  check('snake body has multiple trail points (continuous body)', (a.maxBodyPts || 0) >= 5);
+  check('AI bots present in the room', (a.maxBots || 0) >= 2);
   check('suicide bot died and respawned (infinite respawn)', b.deaths >= 1 && b.respawns >= 1);
-  console.log(`   A: score=${a.maxScore} len=${a.maxLen} | B: deaths=${b.deaths} respawns=${b.respawns}`);
+  console.log(`   A: score=${a.maxScore} len=${a.maxLen} bodyPts=${a.maxBodyPts} bots=${a.maxBots} | B: deaths=${b.deaths} respawns=${b.respawns}`);
   console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILED'}`);
   a.ws.close(); b.ws.close();
   process.exit(failures === 0 ? 0 : 1);

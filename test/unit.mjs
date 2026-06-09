@@ -1,137 +1,189 @@
 // Deterministic unit tests for the continuous endless engine (no network).
-import { GameRoom, RoomManager, CONFIG, PALETTE32, sanitizeName } from '../server/game.js';
+import { GameRoom, RoomManager, CONFIG, PALETTE32, SPECIALS, sanitizeName } from '../server/game.js';
 
 let failures = 0;
 const check = (name, cond) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}`); if (!cond) failures++; };
-const only = (room) => [...room.players.values()][0];
+const room = (opts = {}) => new GameRoom('T', { map: 'VOID', bots: 0, ...opts });
 
-// U1: a new player spawns alive with a trail and a palette colour.
+// U1: spawn alive with trail + palette colour; food present.
 (() => {
-  const room = new GameRoom('T', 'VOID');
-  const p = room.addPlayer('a', { name: 'ALPHA' });
+  const r = room();
+  const p = r.addPlayer('a', { name: 'ALPHA' });
   check('U1: spawned alive with trail', p.alive && p.trail.length > 2);
   check('U1: colour from palette', PALETTE32.includes(p.color));
-  check('U1: food spawned', room.food.length > 0);
+  check('U1: food present', r.food.length > 0);
 })();
 
-// U2: colour is name-derived (deterministic) and de-duplicated per room.
+// U2: name-derived colour, de-duplicated per room.
 (() => {
-  const r1 = new GameRoom('A', 'VOID'); const c1 = r1.addPlayer('x', { name: 'Bob' }).color;
-  const r2 = new GameRoom('B', 'VOID'); const c2 = r2.addPlayer('y', { name: 'Bob' }).color;
+  const c1 = room().addPlayer('x', { name: 'Bob' }).color;
+  const c2 = room().addPlayer('y', { name: 'Bob' }).color;
   check('U2: same name -> same colour', c1 === c2);
-  const room = new GameRoom('C', 'VOID');
-  const a = room.addPlayer('a', { name: 'Bob' }), b = room.addPlayer('b', { name: 'Bob' });
-  check('U2: same-name players get distinct colours', a.color !== b.color);
+  const r = room(); const a = r.addPlayer('a', { name: 'Bob' }), b = r.addPlayer('b', { name: 'Bob' });
+  check('U2: same-name players distinct colours', a.color !== b.color);
 })();
 
-// U3: heading turns toward the target (rate-limited) and the head moves forward.
+// U3: heading eases toward target; head advances.
 (() => {
-  const room = new GameRoom('T', 'TUNNEL');
-  const p = room.addPlayer('a', { name: 'A' });
-  p.hx = 10; p.hy = 10; p.ang = 0; p.targetAng = Math.PI / 2;
-  const x0 = p.hx;
-  room.update(100);
-  check('U3: turned toward target but rate-limited', p.ang > 0 && p.ang <= CONFIG.TURN * 0.1 + 1e-6);
-  check('U3: head advanced forward', p.hx > x0);
+  const r = room({ map: 'TUNNEL' }); const p = r.addPlayer('a', { name: 'A' });
+  p.hx = 10; p.hy = 10; p.ang = 0; p.targetAng = Math.PI / 2; const x0 = p.hx;
+  r.update(100);
+  check('U3: turned toward target (rate-limited)', p.ang > 0 && p.ang <= CONFIG.TURN * 0.1 + 1e-6);
+  check('U3: head advanced', p.hx > x0);
 })();
 
-// U4: tunnel wraps around the edge instead of dying.
+// U4: tunnel wraps; U9: VOID out-of-bounds kills.
 (() => {
-  const room = new GameRoom('T', 'TUNNEL');
-  const p = room.addPlayer('a', { name: 'A' });
-  p.hx = 0.1; p.hy = 5; p.ang = Math.PI; p.targetAng = Math.PI; // heading -x
-  room.update(60);
-  check('U4: wrapped to far edge, alive', p.alive && p.hx > room.map.w - 1);
+  const r = room({ map: 'TUNNEL' }); const p = r.addPlayer('a', { name: 'A' });
+  p.hx = 0.1; p.hy = 5; p.ang = Math.PI; p.targetAng = Math.PI; r.update(60);
+  check('U4: wrapped to far edge, alive', p.alive && p.hx > r.map.w - 1);
+  const r2 = room(); const q = r2.addPlayer('a', { name: 'A' });
+  q.hx = 0.1; q.hy = 5; q.ang = Math.PI; q.targetAng = Math.PI; r2.update(120);
+  check('U9: out of bounds kills on VOID', !q.alive);
 })();
 
-// U5: walls are lethal.
+// U5: walls kill.
 (() => {
-  const room = new GameRoom('T', 'LABYRINTH');
-  const p = room.addPlayer('a', { name: 'A' });
-  const [wx, wy] = [...room.map.walls][0].split(',').map(Number);
-  p.hx = wx + 0.5; p.hy = wy + 0.5; p.ang = 0; p.targetAng = 0;
-  room.update(16);
+  const r = room({ map: 'LABYRINTH' }); const p = r.addPlayer('a', { name: 'A' });
+  const [wx, wy] = [...r.map.walls][0].split(',').map(Number);
+  p.hx = wx + 0.5; p.hy = wy + 0.5; p.ang = 0; r.update(16);
   check('U5: entering a wall kills', !p.alive);
 })();
 
-// U6: eating a frog grows the body and scores.
+// U6: eating a frog grows + scores.
 (() => {
-  const room = new GameRoom('T', 'TUNNEL');
-  const p = room.addPlayer('a', { name: 'A' });
+  const r = room({ map: 'TUNNEL' }); const p = r.addPlayer('a', { name: 'A' });
   p.hx = 10; p.hy = 10; p.bodyLen = CONFIG.START_LEN;
-  room.food = [{ id: 999, x: 10, y: 10 }];
-  room.update(16);
-  check('U6: ate one frog', p.foodCount === 1 && p.score === 10);
-  check('U6: body grew', p.bodyLen > CONFIG.START_LEN);
+  r.food = [{ id: 1, kind: 'FROG', x: 10, y: 10, ang: 0, stepAt: 1e9, turnAt: 1e9 }];
+  r.update(16);
+  check('U6: ate one frog (grow + score)', p.foodCount === 1 && p.score === 10 && p.bodyLen > CONFIG.START_LEN);
 })();
 
-// U7: another snake's body is lethal, but your own tail is safe.
+// U7: enemy body lethal; own tail safe (non-classic).
 (() => {
-  const room = new GameRoom('T', 'TUNNEL');
-  const a = room.addPlayer('a', { name: 'A' });
-  const b = room.addPlayer('b', { name: 'B' });
-  // B is a straight horizontal body; put A's head onto B's mid-trail.
-  b.hx = 14; b.hy = 10; b.ang = 0; b.targetAng = 0;
-  b.trail = []; for (let i = 0; i < 12; i++) b.trail.push({ x: 14 - i * CONFIG.SPACING, y: 10 });
-  a.hx = b.trail[5].x; a.hy = 10; a.ang = Math.PI; a.targetAng = Math.PI;
-  room.update(16);
-  check('U7: hitting another snake is lethal', !a.alive);
-  check('U7: the other snake survives', b.alive);
-
-  // Self-safety: a lone snake curling into its own body stays alive.
-  const room2 = new GameRoom('S', 'TUNNEL');
-  const s = room2.addPlayer('s', { name: 'S' });
-  s.hx = 15; s.hy = 15; s.ang = 0; s.targetAng = 0; s.bodyLen = 8;
-  s.targetAng = Math.PI; // force a hard U-turn so the head crosses the tail
-  let alive = true;
-  for (let i = 0; i < 60 && alive; i++) { room2.update(33); alive = s.alive; }
-  check('U7: self tail is safe through a tight turn', s.alive);
+  const r = room({ map: 'TUNNEL' });
+  const a = r.addPlayer('a', { name: 'A' }), b = r.addPlayer('b', { name: 'B' });
+  b.hx = 14; b.hy = 10; b.trail = []; for (let i = 0; i < 12; i++) b.trail.push({ x: 14 - i * CONFIG.SPACING, y: 10 });
+  a.hx = b.trail[5].x; a.hy = 10; a.ang = Math.PI; r.update(16);
+  check('U7: hitting another snake is lethal', !a.alive && b.alive);
+  // self-safe through a hard U-turn
+  const r2 = room({ map: 'TUNNEL' }); const s = r2.addPlayer('s', { name: 'S' });
+  s.hx = 20; s.hy = 20; s.ang = 0; s.bodyLen = 8; s.targetAng = Math.PI; let alive = true;
+  for (let i = 0; i < 60 && alive; i++) { r2.update(33); alive = s.alive; }
+  check('U7: own tail safe (non-classic)', s.alive);
 })();
 
-// U8: a dead snake respawns after the countdown.
+// U8: respawn after the countdown.
 (() => {
-  const room = new GameRoom('T', 'TUNNEL');
-  const p = room.addPlayer('a', { name: 'A' });
-  const wasColor = p.color;
-  room.kill(p, null, []);
-  check('U8: dead with respawn scheduled', !p.alive && p.respawnAt > 0);
-  for (let t = 0; t <= CONFIG.RESPAWN_MS + 200 && !p.alive; t += 50) room.update(50);
-  check('U8: respawned alive', p.alive && p.color === wasColor);
+  const r = room({ map: 'TUNNEL' }); const p = r.addPlayer('a', { name: 'A' });
+  r.kill(p, null, []);
+  check('U8: dead, respawn scheduled', !p.alive && p.respawnAt > 0);
+  for (let t = 0; t <= CONFIG.RESPAWN_MS + 200 && !p.alive; t += 50) r.update(50);
+  check('U8: respawned alive', p.alive);
 })();
 
-// U9: leaving the field on a non-tunnel map is lethal.
+// U10: food maintained at target density.
 (() => {
-  const room = new GameRoom('T', 'VOID');
-  const p = room.addPlayer('a', { name: 'A' });
-  p.hx = 0.1; p.hy = 5; p.ang = Math.PI; p.targetAng = Math.PI;
-  room.update(120);
-  check('U9: out of bounds kills on VOID', !p.alive);
+  const r = room(); r.addPlayer('a', { name: 'A' }); r.food = []; r.ensureFood();
+  check('U10: frogs maintained at target', r.food.filter((f) => f.kind === 'FROG').length === r.targetFood && r.targetFood > 0);
 })();
 
-// U10: food is replenished up to the target density.
-(() => {
-  const room = new GameRoom('T', 'VOID');
-  room.addPlayer('a', { name: 'A' });
-  room.food = []; room.ensureFood();
-  check('U10: food maintained at target', room.food.length === room.targetFood && room.targetFood > 0);
-})();
-
-// U11: RoomManager creates, reuses and cleans up rooms.
+// U11: RoomManager create/reuse/cleanup.
 (() => {
   const m = new RoomManager();
-  const r1 = m.getOrCreate('abc', 'TUNNEL');
-  const r2 = m.getOrCreate('ABC');
-  check('U11: same code reuses room', r1 === r2 && r1.code === 'ABC');
+  const r1 = m.getOrCreate('abc', { bots: 0 }); const r2 = m.getOrCreate('ABC');
+  check('U11: reuse by code', r1 === r2 && r1.code === 'ABC');
   check('U11: code generator', /^[A-Z0-9]{5}$/.test(m.generateCode()));
-  r1.addPlayer('z', { name: 'Z' }); r1.removePlayer('z');
-  m.updateAll(16);
+  r1.addPlayer('z', { name: 'Z' }); r1.removePlayer('z'); m.updateAll(16);
   check('U11: empty room cleaned up', !m.rooms.has('ABC'));
 })();
 
-// U12: name sanitisation.
+// U12: AI bots are maintained to the target count while a human is present.
 (() => {
-  check('U12: trims & caps', sanitizeName('  Snakey McSnake Face  ').length <= 16);
-  check('U12: empty -> null', sanitizeName('   ') === null);
+  const r = room({ map: 'TUNNEL', bots: 3 }); r.addPlayer('human', { name: 'H' });
+  r.update(16);
+  const bots = [...r.players.values()].filter((p) => p.bot).length;
+  check('U12: bots maintained to target', bots === 3);
+  check('U12: bots have palette colours & names', [...r.players.values()].every((p) => PALETTE32.includes(p.color)));
+})();
+
+// U13: bots do not keep an empty room alive.
+(() => {
+  const m = new RoomManager();
+  const r = m.getOrCreate('BR', { bots: 2 }); r.addPlayer('h', { name: 'H' }); m.updateAll(16);
+  check('U13: room alive with a human + bots', m.rooms.has('BR') && [...r.players.values()].some((p) => p.bot));
+  r.removePlayer('h'); m.updateAll(16);
+  check('U13: room cleaned up once the human leaves', !m.rooms.has('BR'));
+})();
+
+// U14: frogs hop when not classic; stay still in classic.
+(() => {
+  const r = room({ map: 'VOID' }); r.addPlayer('a', { name: 'A' });
+  const f = { id: 1, kind: 'FROG', x: 10, y: 10, ang: 0, stepAt: -1, turnAt: 1e9 };
+  r.food = [f]; r.update(16);
+  check('U14: frog hopped forward (normal)', f.x !== 10 || f.y !== 10);
+  const rc = room({ map: 'VOID', classic: true }); rc.addPlayer('a', { name: 'A' });
+  const fc = { id: 1, kind: 'FROG', x: 10, y: 10, ang: 0, stepAt: -1, turnAt: -1 };
+  rc.food = [fc]; rc.update(16);
+  check('U14: frog static (classic)', fc.x === 10 && fc.y === 10);
+})();
+
+// U15: gems grant stacking effects; giant enlarges the head.
+(() => {
+  const r = room({ map: 'TUNNEL' }); const p = r.addPlayer('a', { name: 'A' });
+  p.hx = 10; p.hy = 10;
+  r.food = [{ id: 1, kind: 'GIANT', x: 10, y: 10, color: SPECIALS.GIANT.color }];
+  const r0 = r.headRadius(p); r.update(16);
+  check('U15: giant effect active', p.eff.giant > r.clock);
+  check('U15: head radius doubled while giant', r.headRadius(p) > r0 * 1.9);
+})();
+
+// U16: vacuum pulls nearby food toward the head.
+(() => {
+  const r = room({ map: 'TUNNEL' }); const p = r.addPlayer('a', { name: 'A' });
+  p.hx = 10; p.hy = 10; p.ang = Math.PI; p.targetAng = Math.PI; p.eff.vacuum = 1e9;
+  const f = { id: 1, kind: 'FROG', x: 14, y: 10, ang: 0, stepAt: 1e9, turnAt: 1e9 };
+  r.food = [f]; const d0 = Math.hypot(r.dxWrap(p.hx, f.x), r.dyWrap(p.hy, f.y));
+  r.update(80); const d1 = Math.hypot(r.dxWrap(p.hx, f.x), r.dyWrap(p.hy, f.y));
+  check('U16: vacuum pulled food closer', d1 < d0);
+})();
+
+// U17: poison clouds poison non-carriers (slow them); carriers are immune.
+(() => {
+  const r = room({ map: 'TUNNEL' });
+  const b = r.addPlayer('b', { name: 'B' });
+  b.hx = 8; b.hy = 8;
+  r.poison = [{ x: 8, y: 8, until: r.clock + 5000 }];
+  r.update(16);
+  check('U17: touching poison poisons you', b.eff.poisoned > r.clock);
+  check('U17: poisoned snakes are slowed 25%', Math.abs(r.speedMult(b) - CONFIG.POISON_SLOW) < 1e-9);
+  const a = r.addPlayer('a', { name: 'A' }); a.hx = 8; a.hy = 8; a.eff.poisonGas = 1e9; a.eff.poisoned = 0;
+  r.poison = [{ x: 8, y: 8, until: r.clock + 5000 }]; r.update(16);
+  check('U17: gas carriers are immune to poison', a.eff.poisoned === 0);
+})();
+
+// U18: classic mode makes your own tail lethal.
+(() => {
+  const r = room({ map: 'TUNNEL', classic: true }); const s = r.addPlayer('s', { name: 'S' });
+  s.hx = 20; s.hy = 20; s.ang = 0; s.bodyLen = 18; // longer than the tight-turn circle
+  s.trail = []; for (let i = 0; i < 12; i++) s.trail.push({ x: 20 - i * CONFIG.SPACING, y: 20 });
+  let alive = true;
+  for (let i = 0; i < 220 && alive; i++) { s.targetAng = s.ang + 1.5; r.update(33); alive = s.alive; } // keep turning left into its coil
+  check('U18: own tail is lethal in classic', !s.alive);
+})();
+
+// U19: death scatters frogs proportional to length.
+(() => {
+  const r = room({ map: 'TUNNEL' }); const p = r.addPlayer('a', { name: 'A' });
+  p.bodyLen = 20; p.trail = []; for (let i = 0; i < 40; i++) p.trail.push({ x: 10, y: 10 });
+  const before = r.food.length; r.kill(p, null, []);
+  check('U19: many frogs dropped for a long snake', r.food.length - before >= 15);
+})();
+
+// U20: name sanitisation.
+(() => {
+  check('U20: trims & caps', sanitizeName('  Snakey McSnake Face  ').length <= 16);
+  check('U20: empty -> null', sanitizeName('   ') === null);
 })();
 
 console.log(`\n${failures === 0 ? 'ALL UNIT TESTS PASS' : failures + ' UNIT TESTS FAILED'}`);

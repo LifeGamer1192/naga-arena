@@ -54,7 +54,7 @@ wss.on('connection', (ws) => {
     if (!client) return;
     switch (msg.type) {
       case 'join': {
-        const room = manager.getOrCreate(msg.room, msg.map);
+        const room = manager.getOrCreate(msg.room, { map: msg.map, bots: msg.bots, classic: msg.classic });
         client.roomCode = room.code;
         const player = room.addPlayer(id, { pid: msg.pid, name: msg.name });
         send(ws, 'welcome', { id, room: room.code, you: { name: player.name, color: player.color } });
@@ -91,7 +91,7 @@ setInterval(() => {
   last = now;
   for (const { code, room, events } of manager.updateAll(dt)) {
     for (const ev of events) {
-      if (ev.type === 'KILL') broadcast(code, 'event', { event: ev });
+      if (ev.type === 'KILL' || ev.type === 'GEM') broadcast(code, 'event', { event: ev });
     }
     broadcast(code, 'state', { state: room.snapshot() });
   }

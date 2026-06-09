@@ -18,11 +18,23 @@ final: you respawn after a short countdown and keep playing until you leave.
   (no rigid 90° grid turns). Mouse, keyboard (WASD / arrows) or touch.
 - **Follow camera**: the view is zoomed in and tracks your snake; you don't need
   to see the whole field.
+- **AI bots**: fill the room with 0–8 computer snakes (default 1) so solo play is
+  fun; bots chase frogs, dodge bodies and respawn like everyone else.
 - **Infinite respawn**: when you die you respawn after a few-second countdown.
 - **Name-based colours**: your snake's colour is derived from your name (32-colour
   palette, de-duplicated per room) so everyone is easy to tell apart.
 - **Self-safe collisions**: your own tail can't kill you; another snake's body can.
-- **Frog food**: eat frogs to grow; dying scatters frogs where you fell.
+  Dying scatters frogs (proportional to your length) where you fell.
+- **Hopping frog food**: frogs face a direction, hop forward every few seconds and
+  occasionally turn — eat them to grow.
+- **Gem power-ups** (stacking status effects, shown above every snake with a
+  countdown):
+  - **Vacuum** (20s) — pulls nearby food toward you.
+  - **Giant** (10s) — your head doubles in size (and reach).
+  - **Poison Gas** (30s) — you're immune and trail poison; other snakes that touch
+    it are poisoned and slowed 25% for 8s.
+- **Classic mode**: traditional rules — your own tail is lethal, frogs stay still
+  and gems are rare.
 - **4 maps** (default **TUNNEL**): VOID, LABYRINTH, TUNNEL (wrap-around edges),
   ARENA. TUNNEL wraps seamlessly thanks to a tiling follow-camera.
 - **URL-shared rooms**, sound effects, particle effects, and mobile support.
