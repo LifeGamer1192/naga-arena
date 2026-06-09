@@ -243,7 +243,7 @@
       if (!map.tunnel) drawWalls(map, cell);
       for (const c of (state.poison || [])) drawPoison(c.x * cell, c.y * cell, cell, now);
       for (const f of state.food) drawFood(f, cell, now);
-      for (const s of state.snakes) drawSnake(s, cell, s.id === myId);
+      for (const s of state.snakes) drawSnake(s, cell, s.id === myId, map);
       ctx.restore();
     }
     updateDrawParticles(dt);
@@ -290,20 +290,38 @@
     else drawGem(ctx, f.x * cell, f.y * cell, cell * 0.42, f.color || '#00e5ff', now + f.id);
   }
 
-  // A frog facing +x locally; rotated by `ang` so its heading is readable.
+  // A top-down frog facing +x locally; rotated by `ang` so its heading reads.
   function drawFrog(g, cx, cy, r, t, ang) {
+    const green = '#3fbf63', dark = '#268a47', light = '#79e893';
     g.save();
-    g.translate(cx, cy + Math.sin(t / 350) * r * 0.05);
+    g.translate(cx, cy + Math.sin(t / 300) * r * 0.05);
     g.rotate(ang || 0);
-    g.fillStyle = '#2c9b50'; // hind legs at the back
-    g.beginPath(); g.ellipse(-r * 0.7, -r * 0.55, r * 0.42, r * 0.26, -0.6, 0, Math.PI * 2); g.fill();
-    g.beginPath(); g.ellipse(-r * 0.7, r * 0.55, r * 0.42, r * 0.26, 0.6, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#39c46a'; // body (longer along heading)
-    g.beginPath(); g.ellipse(0, 0, r * 1.05, r * 0.8, 0, 0, Math.PI * 2); g.fill();
-    for (const sy of [-1, 1]) { // eyes near the front, pupils looking forward
-      g.fillStyle = '#39c46a'; g.beginPath(); g.arc(r * 0.5, sy * r * 0.45, r * 0.34, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#f2fff6'; g.beginPath(); g.arc(r * 0.5, sy * r * 0.45, r * 0.25, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#0a1f10'; g.beginPath(); g.arc(r * 0.62, sy * r * 0.45, r * 0.12, 0, Math.PI * 2); g.fill();
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    // Long bent hind legs splayed at the back (thigh out-back, shin forward).
+    g.strokeStyle = dark; g.lineWidth = r * 0.34;
+    for (const sy of [-1, 1]) {
+      g.beginPath();
+      g.moveTo(-r * 0.15, sy * r * 0.42);
+      g.lineTo(-r * 1.05, sy * r * 1.05);
+      g.lineTo(-r * 0.05, sy * r * 1.3);
+      g.stroke();
+      g.fillStyle = dark; // webbed foot
+      g.beginPath(); g.ellipse(-r * 0.05, sy * r * 1.3, r * 0.3, r * 0.16, sy * 0.6, 0, Math.PI * 2); g.fill();
+    }
+    // Small front legs.
+    g.strokeStyle = dark; g.lineWidth = r * 0.2;
+    for (const sy of [-1, 1]) {
+      g.beginPath(); g.moveTo(r * 0.55, sy * r * 0.35); g.lineTo(r * 1.0, sy * r * 0.72); g.stroke();
+      g.fillStyle = dark; g.beginPath(); g.arc(r * 1.0, sy * r * 0.72, r * 0.13, 0, Math.PI * 2); g.fill();
+    }
+    // Body.
+    g.fillStyle = green; g.beginPath(); g.ellipse(0, 0, r * 1.05, r * 0.78, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = light; g.beginPath(); g.ellipse(r * 0.15, 0, r * 0.6, r * 0.42, 0, 0, Math.PI * 2); g.fill();
+    // Bulging eyes at the front (pupils forward to show the heading).
+    for (const sy of [-1, 1]) {
+      g.fillStyle = green; g.beginPath(); g.arc(r * 0.62, sy * r * 0.52, r * 0.36, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#f4fff8'; g.beginPath(); g.arc(r * 0.66, sy * r * 0.52, r * 0.25, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#0a1f10'; g.beginPath(); g.arc(r * 0.78, sy * r * 0.52, r * 0.12, 0, Math.PI * 2); g.fill();
     }
     g.restore();
   }
@@ -325,10 +343,25 @@
   }
   function g_fillGlow(x, y, r, color) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
 
-  function drawSnake(s, cell, isMe) {
+  // Unwrap a tunnel-wrapped body into one continuous polyline (relative to the
+  // head) so the connected renderer never has to split across the seam.
+  function unwrapBody(body, w, h, tunnel) {
+    if (!tunnel || body.length < 2) return body;
+    const out = [body[0]];
+    for (let i = 1; i < body.length; i++) {
+      let x = body[i].x, y = body[i].y; const prev = out[i - 1];
+      while (x - prev.x > w / 2) x -= w; while (x - prev.x < -w / 2) x += w;
+      while (y - prev.y > h / 2) y -= h; while (y - prev.y < -h / 2) y += h;
+      out.push({ x, y });
+    }
+    return out;
+  }
+
+  function drawSnake(s, cell, isMe, map) {
     if (!s.alive || !s.body || s.body.length === 0) return;
     const headScale = s.giant ? 2 : 1;
-    renderSnake(ctx, s.body, s.color, cell, isMe || s.giant, headScale);
+    const body = unwrapBody(s.body, map.w, map.h, map.tunnel);
+    renderSnake(ctx, body, s.color, cell, isMe || s.giant, headScale);
     const h = s.body[0];
     const hxp = h.x * cell, hyp = h.y * cell;
     const headTop = hyp - cell * (0.7 * headScale);

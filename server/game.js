@@ -12,8 +12,8 @@ export const CONFIG = {
   START_LEN: 5, GROW: 1.4, RESPAWN_MS: 3000, FOOD_DENSITY: 0.03,
   DEFAULT_MAP: 'TUNNEL', MAX_PLAYERS: 12,
   BOTS_DEFAULT: 1, BOTS_MAX: 8,
-  // Frog wandering.
-  FROG_STEP_MS: 3000, FROG_TURN_MS: 10000, FROG_STEP: 0.9,
+  // Frog wandering (hops twice as far, 1.5x as often).
+  FROG_STEP_MS: 2000, FROG_TURN_MS: 10000, FROG_STEP: 1.8,
   // Special gems.
   SPECIAL_SPAWN_MS: 6000, MAX_SPECIALS: 5, CLASSIC_MAX_SPECIALS: 1,
   // Status effects.
