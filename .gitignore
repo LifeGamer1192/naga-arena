@@ -9,5 +9,6 @@ dist/
 # Local Claude Code settings (may contain local paths)
 .claude/
 
-# Original Notion export (kept locally, not published)
+# Design / spec documents (kept locally, not published)
+docs/
 NAGA ARENA *.md

@@ -111,10 +111,9 @@ naga_arena/
 │   ├── index.html  # screens: TITLE / LOBBY / GAME / RESULT
 │   ├── style.css
 │   └── client.js   # WebSocket client, Canvas renderer, input
-├── test/
-│   ├── unit.mjs    # deterministic engine tests
-│   └── smoke.mjs   # headless 2-client end-to-end test
-└── docs/DESIGN.md  # full design document (all phases)
+└── test/
+    ├── unit.mjs    # deterministic engine tests
+    └── smoke.mjs   # headless 2-client end-to-end test
 ```
 
 ## Tests
