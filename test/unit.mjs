@@ -210,6 +210,25 @@ const room = (opts = {}) => new GameRoom('T', { map: 'VOID', bots: 0, ...opts })
   check('U23: lethal again after protection ends', !b.alive);
 })();
 
+// U24: head-on collisions are resolved by length (longer wins; equal trade).
+(() => {
+  const r = room({ map: 'TUNNEL' });
+  const a = r.addPlayer('a', { name: 'A' }); const b = r.addPlayer('b', { name: 'B' });
+  a.spawnSafeUntil = 0; b.spawnSafeUntil = 0; r.food = []; r.ensureFood = () => {};
+  a.hx = 10; a.hy = 10; a.trail = [{ x: 10, y: 10 }]; a.bodyLen = 20;
+  b.hx = 10; b.hy = 10; b.trail = [{ x: 10, y: 10 }]; b.bodyLen = 8;
+  r.update(16);
+  check('U24: longer snake wins head-on', a.alive && !b.alive);
+
+  const r2 = room({ map: 'TUNNEL' });
+  const c = r2.addPlayer('c', { name: 'C' }); const d = r2.addPlayer('d', { name: 'D' });
+  c.spawnSafeUntil = 0; d.spawnSafeUntil = 0; r2.food = []; r2.ensureFood = () => {};
+  c.hx = 12; c.hy = 12; c.trail = [{ x: 12, y: 12 }]; c.bodyLen = 10;
+  d.hx = 12; d.hy = 12; d.trail = [{ x: 12, y: 12 }]; d.bodyLen = 10;
+  r2.update(16);
+  check('U24: equal lengths trade (both die)', !c.alive && !d.alive);
+})();
+
 // U22: respawn picks a spot clear of other snakes' bodies.
 (() => {
   const r = room({ map: 'VOID' });

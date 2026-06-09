@@ -328,22 +328,45 @@ export class GameRoom {
       }
     }
 
-    // Collisions: another snake's body is lethal; own tail is safe except in classic.
-    for (const p of this.players.values()) {
-      if (!p.alive || this.protectedNow(p)) continue; // protected snakes can't die
-      const hr = this.headRadius(p);
-      for (const o of this.players.values()) {
-        if (!o.alive) continue;
-        if (o === p && !this.classic) continue;
-        if (o !== p && this.protectedNow(o)) continue; // protected bodies are non-lethal
-        const rr2 = (hr + CONFIG.BODY_RADIUS) ** 2;
-        const start = o === p ? Math.ceil(CONFIG.START_LEN / CONFIG.SPACING) : 0; // skip own neck in classic
-        for (let i = start; i < o.trail.length; i += 2) {
-          if (this.dist2(p.hx, p.hy, o.trail[i].x, o.trail[i].y) < rr2) { this.kill(p, o === p ? null : o, events); break; }
+    // Collisions. Protected (freshly spawned) snakes don't take part.
+    const actives = [...this.players.values()].filter((p) => p.alive && !this.protectedNow(p));
+    const deaths = new Map(); // victim -> killer (or null)
+
+    // 1) Head-on: when two heads meet, the LONGER snake wins; equal lengths trade.
+    for (let i = 0; i < actives.length; i++) {
+      for (let j = i + 1; j < actives.length; j++) {
+        const a = actives[i], b = actives[j];
+        const rr = this.headRadius(a) + this.headRadius(b);
+        if (this.dist2(a.hx, a.hy, b.hx, b.hy) < rr * rr) {
+          if (a.bodyLen > b.bodyLen + 0.5) deaths.set(b, a);
+          else if (b.bodyLen > a.bodyLen + 0.5) deaths.set(a, b);
+          else { deaths.set(a, null); deaths.set(b, null); }
         }
-        if (!p.alive) break;
       }
     }
+
+    // 2) Head into a body is lethal (own tail only in classic).
+    const selfStart = Math.ceil(CONFIG.START_LEN / CONFIG.SPACING);
+    for (const p of actives) {
+      if (deaths.has(p)) continue;
+      const hr = this.headRadius(p), rr2 = (hr + CONFIG.BODY_RADIUS) ** 2;
+      if (this.classic) {
+        for (let i = selfStart; i < p.trail.length; i += 2) {
+          if (this.dist2(p.hx, p.hy, p.trail[i].x, p.trail[i].y) < rr2) { deaths.set(p, null); break; }
+        }
+        if (deaths.has(p)) continue;
+      }
+      for (const o of actives) {
+        if (o === p || deaths.has(o)) continue; // a snake that's already dying can't kill
+        let hit = false;
+        for (let i = 0; i < o.trail.length; i += 2) {
+          if (this.dist2(p.hx, p.hy, o.trail[i].x, o.trail[i].y) < rr2) { hit = true; break; }
+        }
+        if (hit) { deaths.set(p, o); break; }
+      }
+    }
+
+    for (const [victim, killer] of deaths) this.kill(victim, killer, events);
 
     this.ensureFood();
     this.specialAccum += dt;
